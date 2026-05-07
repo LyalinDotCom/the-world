@@ -142,6 +142,10 @@ export interface DialogueRequest {
   player?: PlayerContext;
   relationship?: string;
   conversationId?: string;
+  recentDialogue?: Array<{
+    speaker: string;
+    text: string;
+  }>;
 }
 
 export interface BarkRequest {

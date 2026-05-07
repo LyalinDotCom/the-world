@@ -18,6 +18,9 @@ export function compileDialoguePrompt(npc: NpcDefinition, request: DialogueReque
   const persona = npc.persona;
   const memory = ctx.memory.length ? ctx.memory.map((line) => `- ${line}`).join('\n') : '- No important prior memory.';
   const playerFacts = request.player?.knownFacts?.length ? request.player.knownFacts.map((fact) => `- ${fact}`).join('\n') : '- None.';
+  const recentDialogue = request.recentDialogue?.length
+    ? request.recentDialogue.slice(-8).map((line) => `${line.speaker}: ${line.text}`).join('\n')
+    : 'None.';
   return [
     {
       role: 'system',
@@ -29,6 +32,7 @@ export function compileDialoguePrompt(npc: NpcDefinition, request: DialogueReque
         'Recipe: npc.dialogue.turn',
         'Return one JSON object with text, emotion, animationHint, events, memoryWrites, safetyFlags, and optional shouldEndConversation.',
         'Keep the NPC reply to 1-3 short sentences. The NPC may end the conversation if the player says goodbye, is rude, or the scene demands it.',
+        'Do not repeat your previous reply. If the player asks "what?" or seems confused, clarify what you just meant in plainer words.',
         '',
         `NPC id: ${npc.id}`,
         `NPC name: ${persona.name}`,
@@ -45,6 +49,7 @@ export function compileDialoguePrompt(npc: NpcDefinition, request: DialogueReque
         `Player: ${JSON.stringify(request.player ?? {})}`,
         `Relationship: ${request.relationship ?? 'stranger'}`,
         `Relevant memory:\n${memory}`,
+        `Recent dialogue:\n${recentDialogue}`,
         `Player known facts:\n${playerFacts}`,
         '',
         `Player says: ${request.playerText}`,

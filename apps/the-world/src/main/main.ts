@@ -100,7 +100,8 @@ function createWindow(): void {
     webPreferences: {
       preload: preloadPath,
       contextIsolation: true,
-      nodeIntegration: false
+      nodeIntegration: false,
+      sandbox: false
     }
   });
 
@@ -114,6 +115,11 @@ function createWindow(): void {
   });
   mainWindow.webContents.on('did-finish-load', () => {
     console.log('The World: renderer loaded.');
+    void mainWindow?.webContents.executeJavaScript('Boolean(window.gameAI)', true)
+      .then((hasBridge) => {
+        console.log(`The World: Gemma IPC bridge ${hasBridge ? 'ready' : 'missing'}.`);
+      })
+      .catch((error) => reportMainProcessError('bridge verification failed', error));
   });
   mainWindow.webContents.on('render-process-gone', (_event, details) => {
     reportMainProcessError('renderer process gone', details);

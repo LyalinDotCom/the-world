@@ -15,7 +15,9 @@ This repo shows a small but working slice of that idea: a game developer defines
 - A provider boundary where Ollama/Gemma is one backend, not the whole product.
 - Safe Electron integration that keeps model access in the main process and exposes a narrow IPC bridge to the renderer.
 - Model warmup on startup so the first real conversation is less likely to pay the full local model-load cost.
-- A procedural 2D world with trees, hills, paths, large explorable space, generated NPCs, Talk interaction, free-text replies, and a Goodbye flow.
+- A fixed large 2D map with three towns, named woods, roads, houses, generated NPCs, Talk interaction, free-text replies, and a Goodbye flow.
+- Small NPC groups that carry on private overheard conversations and refuse interruption.
+- A minimap, random town-adjacent spawn, invisible map walls, and walking effects so the demo feels like a playable place instead of a chat panel.
 - A dev trace panel that surfaces provider/model/cache/fallback behavior while playing.
 
 This is not trying to be a finished RPG yet. It is a technical demo of the runtime shape: how a game engine can ask an LLM for controlled, typed, lore-aware behavior during play.
@@ -25,7 +27,7 @@ The repo contains:
 - `@game-llm/core`: game-native TypeScript runtime concepts: NPCs, schema-bound dialogue turns, prompt compilation, memory, recipes, cache, debug traces, and a mock provider.
 - `@game-llm/ollama`: Ollama adapter with model listing, health checks, JSON-schema generation, and a low-end Gemma-friendly default.
 - `@game-llm/electron`: safe Electron IPC helpers that keep model access in the main process.
-- `apps/the-world`: a 2D procedural exploration demo with trees, hills, paths, NPCs, overheard barks, and natural-language conversations.
+- `apps/the-world`: a bounded 2D exploration demo with towns, woods, paths, NPCs, overheard barks, and natural-language conversations.
 
 ## Architecture
 
@@ -80,12 +82,15 @@ On startup, the app:
 3. Warms the selected local model in the background.
 4. Shows model/provider status in the HUD.
 
-If you open the renderer directly in a browser, it uses the browser fallback mock bridge. The real Ollama/Gemma path is available through Electron.
+If you open the renderer directly in a browser, it shows a Gemma bridge error. That is intentional: playable conversations are not mocked, because this demo exists to prove the Electron/Gemma path.
 
 ## Playing The Demo
 
 - Move with `WASD` or arrow keys.
+- You spawn near one of three towns: Rivergate, Mosswake, or Cindervale.
+- Use the top-right minimap to navigate towns, roads, woods, and nearby NPCs.
 - Approach an NPC and click `Talk`, or press `E`.
+- Some NPCs are in private groups. You can listen nearby, but interrupting them gets a refusal instead of joining their conversation.
 - Type natural language into the dialogue box.
 - Click `Goodbye` to let the NPC end the conversation.
 - Stay near NPCs to see ambient barks and overheard exchanges.
@@ -109,21 +114,30 @@ Expected Electron startup log includes:
 
 ```txt
 The World: renderer loaded.
+The World: Gemma IPC bridge ready.
 The World: warmup ready (ollama gemma4:e4b)
 ```
+
+## Agent Continuity
+
+Long-term project direction is captured in `AGENTS.md` so future sessions keep the same north star: Gemma-powered game life, no fake playable AI fallback, typed game-safe outputs, and a bounded navigable world.
 
 ## Current Scope
 
 Implemented now:
 
 - Procedural terrain, roads, hills, trees, and generated NPCs.
+- A fixed large map with Rivergate, Mosswake, Cindervale, Hollow Pines, Mothwood, and Wolfmoon Wood.
+- Houses, sheds, and wayhouses clustered into towns and along roads.
+- Minimap navigation, random town-adjacent spawn, invisible map walls, and player walking effects.
+- NPC wandering around local areas.
 - NPC Talk interaction with two-way text.
 - NPC-controlled conversation ending through `shouldEndConversation`.
-- Ambient barks and overheard two-NPC exchanges.
+- Ambient barks, overheard two-NPC exchanges, and private group conversations.
 - Local Ollama/Gemma structured generation.
 - Warmup API and startup warmup.
 - Schema validation, repair, and fallback.
-- Mock provider for tests and browser-only renderer previews.
+- Mock provider for tests only; playable renderer fallback is deliberately disabled.
 
 Good next steps:
 
