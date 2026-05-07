@@ -1,0 +1,29 @@
+{
+  "name": "the-world-workspace",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Game-native local LLM runtime packages plus The World Electron demo.",
+  "type": "module",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "build": "npm run build --workspaces --if-present",
+    "dev": "npm run dev --workspace the-world",
+    "test": "npm run test --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present"
+  },
+  "devDependencies": {
+    "@types/node": "^24.10.1",
+    "concurrently": "^9.2.1",
+    "electron": "^39.2.6",
+    "typescript": "^5.9.3",
+    "vite": "^7.2.4",
+    "vitest": "^4.0.14",
+    "wait-on": "^9.0.1"
+  },
+  "dependencies": {
+    "zod": "^4.1.13"
+  }
+}

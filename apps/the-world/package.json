@@ -1,0 +1,29 @@
+{
+  "name": "the-world",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Electron-hosted procedural AI NPC demo for @game-llm.",
+  "type": "module",
+  "main": "dist/main/main.js",
+  "scripts": {
+    "build": "npm run build:deps && npm run build:main && npm run build:renderer",
+    "build:deps": "npm run build --workspace @game-llm/core && npm run build --workspace @game-llm/ollama && npm run build --workspace @game-llm/electron",
+    "build:main": "tsc -p tsconfig.main.json",
+    "build:renderer": "vite build",
+    "dev": "npm run build:deps && npm run build:main && concurrently -k \"vite --host 127.0.0.1\" \"tsc -p tsconfig.main.json --watch --preserveWatchOutput\" \"wait-on tcp:5173 file:dist/main/main.js && VITE_DEV_SERVER_URL=http://127.0.0.1:5173 electron .\"",
+    "start": "npm run build && electron .",
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.main.json --noEmit && tsc -p tsconfig.renderer.json --noEmit"
+  },
+  "dependencies": {
+    "@game-llm/core": "0.1.0",
+    "@game-llm/electron": "0.1.0",
+    "@game-llm/ollama": "0.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.10.1",
+    "typescript": "^5.9.3",
+    "vite": "^7.2.4",
+    "vitest": "^4.0.14"
+  }
+}
