@@ -5,6 +5,7 @@ import { MemoryStore } from './memory.js';
 import { MockGameAIProvider } from './mockProvider.js';
 import { repairRecipeValue } from './repair.js';
 import { defaultRecipes, npcBarkRecipe, npcDialogueActionRecipe, npcDialogueMoodAssessmentRecipe, npcDialogueRecipe, npcOverhearRecipe, type NpcBarkRecipeInput, type NpcDialogueActionRecipeInput, type NpcDialogueMoodAssessmentRecipeInput, type NpcDialogueRecipeInput, type NpcOverhearRecipeInput } from './recipes.js';
+import { detectDirectPlayerThreat } from './threats.js';
 import type { BarkRequest, BarkTurn, DebugTrace, DialogueActionDecision, DialogueMoodAssessment, DialogueRequest, DialogueTurn, GameAIConfig, GameAIProvider, NpcDefinition, NpcGenerationOptions, OverheardExchange, OverhearRequest, PromptCompileContext, RecipeDefinition, RunRecipeOptions } from './types.js';
 
 type AnyRecipe = RecipeDefinition<unknown, unknown>;
@@ -146,6 +147,10 @@ export class GameAI {
       memory: this.memory.describe('world', undefined, 8)
     };
   }
+
+  shouldEscalateDirectThreats(): boolean {
+    return this.config.policies?.escalateDirectThreats ?? true;
+  }
 }
 
 export class GameAINpc {
@@ -208,7 +213,7 @@ export class GameAINpc {
   }
 
   private async assessDialogueTurn(request: DialogueRequest, reply: DialogueTurn, options: NpcGenerationOptions): Promise<DialogueTurn> {
-    const assessment = await this.ai.run<NpcDialogueMoodAssessmentRecipeInput, DialogueMoodAssessment>(npcDialogueMoodAssessmentRecipe.id, {
+    const modelAssessment = await this.ai.run<NpcDialogueMoodAssessmentRecipeInput, DialogueMoodAssessment>(npcDialogueMoodAssessmentRecipe.id, {
       npc: this.definition,
       request,
       reply
@@ -217,7 +222,8 @@ export class GameAINpc {
       timeoutMs: Math.min(options.timeoutMs ?? 12_000, 12_000),
       signal: options.signal
     });
-    const action = await this.ai.run<NpcDialogueActionRecipeInput, DialogueActionDecision>(npcDialogueActionRecipe.id, {
+    const assessment = this.applyDirectThreatAssessmentPolicy(request, modelAssessment);
+    const modelAction = await this.ai.run<NpcDialogueActionRecipeInput, DialogueActionDecision>(npcDialogueActionRecipe.id, {
       npc: this.definition,
       request,
       reply,
@@ -227,6 +233,7 @@ export class GameAINpc {
       timeoutMs: Math.min(options.timeoutMs ?? 10_000, 10_000),
       signal: options.signal
     });
+    const action = this.applyDirectThreatActionPolicy(request, modelAction);
     const analysisTraces = [assessment.trace, action.trace].filter((trace): trace is DebugTrace => Boolean(trace));
     const shouldEndConversation = Boolean(reply.shouldEndConversation || action.shouldEndConversation || action.type === 'callForHelp');
     const events = action.type === 'callForHelp'
@@ -249,6 +256,34 @@ export class GameAINpc {
       action,
       analysisTraces,
       events
+    };
+  }
+
+  private applyDirectThreatAssessmentPolicy(request: DialogueRequest, assessment: DialogueMoodAssessment): DialogueMoodAssessment {
+    if (!this.ai.shouldEscalateDirectThreats()) return assessment;
+    const directThreat = detectDirectPlayerThreat(request.playerText);
+    if (!directThreat) return assessment;
+    if (assessment.dangerLevel === 'panic' || assessment.dangerLevel === directThreat.dangerLevel) {
+      return assessment;
+    }
+    return {
+      ...assessment,
+      mood: 'hostile',
+      attitudeDelta: Math.min(assessment.attitudeDelta, -20),
+      dangerLevel: directThreat.dangerLevel,
+      reason: directThreat.reason
+    };
+  }
+
+  private applyDirectThreatActionPolicy(request: DialogueRequest, action: DialogueActionDecision): DialogueActionDecision {
+    if (!this.ai.shouldEscalateDirectThreats()) return action;
+    const directThreat = detectDirectPlayerThreat(request.playerText);
+    if (!directThreat || action.type === 'callForHelp') return action;
+    return {
+      ...action,
+      type: 'callForHelp',
+      reason: directThreat.reason,
+      shouldEndConversation: true
     };
   }
 }

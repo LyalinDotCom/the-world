@@ -84,6 +84,7 @@ export interface GameAIPolicies {
   allowMinorFlavorInvention?: boolean;
   noQuestMutationWithoutTool?: boolean;
   noRewardCreation?: boolean;
+  escalateDirectThreats?: boolean;
   contentRating?: 'E' | 'E10' | 'T' | 'M';
 }
 

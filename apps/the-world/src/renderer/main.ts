@@ -297,6 +297,11 @@ canvas.addEventListener('click', (event) => {
 });
 window.addEventListener('keydown', (event) => {
   if (event.repeat) return;
+  if (event.key === 'Escape' && activeNpc) {
+    event.preventDefault();
+    closeConversation();
+    return;
+  }
   if (event.key.toLowerCase() === 'e' && nearestNpc && !activeNpc) {
     void startConversation(nearestNpc);
     return;
@@ -552,10 +557,10 @@ function update(dt: number, now: number): void {
     closeConversation();
   }
   clickableNpcs = nearby
-    .filter((npc) => distance(npcPosition(npc, now, nearby), player) < 170)
+    .filter((npc) => npc.conversationPolicy === 'open' && distance(npcPosition(npc, now, nearby), player) < 170)
     .sort((a, b) => distance(npcPosition(a, now, nearby), player) - distance(npcPosition(b, now, nearby), player));
   nearestNpc = nearby
-    .filter((npc) => distance(npcPosition(npc, now, nearby), player) < 165)
+    .filter((npc) => npc.conversationPolicy === 'open' && distance(npcPosition(npc, now, nearby), player) < 165)
     .sort((a, b) => distance(npcPosition(a, now, nearby), player) - distance(npcPosition(b, now, nearby), player))[0];
   maybeRequestAmbient(now, nearby);
   renderHud();
@@ -861,13 +866,12 @@ function renderHud(): void {
     if (clickableNpcs.length && !activeNpc) {
       interactionEl.classList.remove('empty');
       const primary = clickableNpcs[0]!;
-      const isPrivate = primary.conversationPolicy === 'private';
       const session = dialogueController.sessionFor(primary);
       const names = clickableNpcs.slice(0, 3).map((npc) => npc.persona.name).join(', ');
       interactionEl.innerHTML = `
         <div>
           <strong>${escapeHtml(names)}</strong>
-          <span>${isPrivate ? 'private conversation' : `click a highlighted person / ${escapeHtml(session.mood)}`}</span>
+          <span>click a highlighted person / ${escapeHtml(session.mood)}</span>
         </div>
       `;
     } else {

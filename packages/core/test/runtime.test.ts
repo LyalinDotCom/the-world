@@ -240,6 +240,133 @@ describe('GameAI runtime', () => {
     ]);
   });
 
+  it('escalates direct fight threats even when the model under-classifies them', async () => {
+    const provider: GameAIProvider = {
+      id: 'under-calling-provider',
+      async generate(request) {
+        const recipeId = request.metadata?.recipeId;
+        if (recipeId === 'npc.dialogue.assessMood') {
+          return {
+            text: JSON.stringify({
+              mood: 'calm',
+              attitudeDelta: 0,
+              dangerLevel: 'none',
+              reason: 'The player sounded restless.'
+            })
+          };
+        }
+        if (recipeId === 'npc.dialogue.decideAction') {
+          return {
+            text: JSON.stringify({
+              type: 'none',
+              reason: 'No action needed.',
+              shouldEndConversation: false
+            })
+          };
+        }
+        return {
+          text: JSON.stringify({
+            text: 'By the smoke, friend, you sound restless.',
+            emotion: 'neutral',
+            mood: 'calm',
+            attitudeDelta: 0,
+            willTalkAgain: true,
+            events: [],
+            memoryWrites: [],
+            safetyFlags: []
+          })
+        };
+      }
+    };
+    const ai = createGameAI({
+      provider,
+      world: { id: 'test-world' },
+      runtime: { cache: 'none' }
+    });
+    const npc = ai.npc({
+      id: 'npc.miller.holt',
+      persona: { name: 'Holt', role: 'miller', mood: 'wary' }
+    });
+
+    const turn = await npc.respond({
+      playerText: 'im going to fight you now, run or face me!',
+      scene: { location: 'Cindervale' }
+    }, {
+      assess: true
+    });
+
+    expect(turn.assessment?.dangerLevel).toBe('panic');
+    expect(turn.assessment?.mood).toBe('hostile');
+    expect(turn.action?.type).toBe('callForHelp');
+    expect(turn.shouldEndConversation).toBe(true);
+    expect(turn.events).toContainEqual({
+      type: 'npc.callForHelp',
+      npcId: 'npc.miller.holt',
+      reason: 'The player directly threatened violence against the NPC.',
+      dangerLevel: 'panic'
+    });
+  });
+
+  it('lets developers disable direct-threat escalation policy', async () => {
+    const provider: GameAIProvider = {
+      id: 'under-calling-provider',
+      async generate(request) {
+        if (request.metadata?.recipeId === 'npc.dialogue.assessMood') {
+          return {
+            text: JSON.stringify({
+              mood: 'calm',
+              attitudeDelta: 0,
+              dangerLevel: 'none',
+              reason: 'The model did not escalate.'
+            })
+          };
+        }
+        if (request.metadata?.recipeId === 'npc.dialogue.decideAction') {
+          return {
+            text: JSON.stringify({
+              type: 'none',
+              reason: 'No action needed.',
+              shouldEndConversation: false
+            })
+          };
+        }
+        return {
+          text: JSON.stringify({
+            text: 'Easy now.',
+            emotion: 'neutral',
+            mood: 'calm',
+            attitudeDelta: 0,
+            willTalkAgain: true,
+            events: [],
+            memoryWrites: [],
+            safetyFlags: []
+          })
+        };
+      }
+    };
+    const ai = createGameAI({
+      provider,
+      world: { id: 'test-world' },
+      policies: { escalateDirectThreats: false },
+      runtime: { cache: 'none' }
+    });
+    const npc = ai.npc({
+      id: 'npc.miller.holt',
+      persona: { name: 'Holt', role: 'miller' }
+    });
+
+    const turn = await npc.respond({
+      playerText: 'im going to fight you now, run or face me!',
+      scene: { location: 'Cindervale' }
+    }, {
+      assess: true
+    });
+
+    expect(turn.assessment?.dangerLevel).toBe('none');
+    expect(turn.action?.type).toBe('none');
+    expect(turn.events.some((event) => event.type === 'npc.callForHelp')).toBe(false);
+  });
+
   it('keeps assessment traces out of follow-up action prompts', async () => {
     let actionPrompt = '';
     const provider: GameAIProvider = {

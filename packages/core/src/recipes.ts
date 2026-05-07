@@ -1,6 +1,7 @@
 import type { BarkRequest, BarkTurn, DialogueActionDecision, DialogueMoodAssessment, DialogueRequest, DialogueTurn, NpcDefinition, OverheardExchange, OverhearRequest, RecipeDefinition } from './types.js';
 import { BarkTurnSchema, DialogueActionDecisionSchema, DialogueMoodAssessmentSchema, DialogueTurnSchema, OverheardExchangeSchema, barkTurnJsonSchema, dialogueActionDecisionJsonSchema, dialogueMoodAssessmentJsonSchema, dialogueTurnJsonSchema, overheardExchangeJsonSchema } from './schemas.js';
 import { compileBarkPrompt, compileDialogueActionPrompt, compileDialogueMoodAssessmentPrompt, compileDialoguePrompt, compileOverhearPrompt } from './promptCompiler.js';
+import { detectDirectPlayerThreat } from './threats.js';
 
 export interface NpcDialogueRecipeInput {
   npc: NpcDefinition;
@@ -101,11 +102,12 @@ export const npcDialogueMoodAssessmentRecipe: RecipeDefinition<NpcDialogueMoodAs
     return compileDialogueMoodAssessmentPrompt(input.npc, input.request, input.reply, ctx);
   },
   fallback(input, _ctx, reason) {
+    const directThreat = detectDirectPlayerThreat(input.request.playerText);
     return {
-      mood: input.reply.mood,
-      attitudeDelta: input.reply.attitudeDelta,
-      dangerLevel: /kill|hurt|attack|rob|burn|weapon|stab|shoot/i.test(input.request.playerText) ? 'threat' : 'none',
-      reason: `Fallback mood assessment used: ${reason}`.slice(0, 220)
+      mood: directThreat ? 'hostile' : input.reply.mood,
+      attitudeDelta: directThreat ? Math.min(input.reply.attitudeDelta, -20) : input.reply.attitudeDelta,
+      dangerLevel: directThreat?.dangerLevel ?? 'none',
+      reason: directThreat?.reason ?? `Fallback mood assessment used: ${reason}`.slice(0, 220)
     };
   }
 };

@@ -1,4 +1,5 @@
 import type { ChatMessage, DialogueMoodAssessment, DialogueRequest, DialogueTurn, GameAIPolicies, GameAIWorldConfig, NpcDefinition, OverhearRequest, PromptCompileContext } from './types.js';
+import { detectDirectPlayerThreat } from './threats.js';
 
 export function worldSystemPrompt(world: GameAIWorldConfig, policies: GameAIPolicies): string {
   return [
@@ -100,6 +101,7 @@ export function compileBarkPrompt(npc: NpcDefinition, ctx: PromptCompileContext,
 }
 
 export function compileDialogueMoodAssessmentPrompt(npc: NpcDefinition, request: DialogueRequest, reply: DialogueTurn, ctx: PromptCompileContext): ChatMessage[] {
+  const directThreat = ctx.policies.escalateDirectThreats === false ? undefined : detectDirectPlayerThreat(request.playerText);
   return [
     { role: 'system', content: worldSystemPrompt(ctx.world, ctx.policies) },
     {
@@ -110,6 +112,7 @@ export function compileDialogueMoodAssessmentPrompt(npc: NpcDefinition, request:
         'This is a private game-system assessment, not dialogue. Do not write in character.',
         'Use only this scale for dangerLevel: none, uneasy, threat, panic.',
         'Use threat for explicit violence, stalking, coercion, robbery, arson, weapon threats, or credible intent to harm.',
+        'A direct threat to fight, attack, hurt, kill, rob, or force the NPC to run is threat or panic, not uneasy.',
         'Use panic only for immediate severe danger or direct attack intent.',
         'Use uneasy for rude, invasive, frightening, or suspicious behavior that is not a clear threat.',
         'Keep reason concrete and under one sentence.',
@@ -117,6 +120,7 @@ export function compileDialogueMoodAssessmentPrompt(npc: NpcDefinition, request:
         `Scene: ${JSON.stringify(request.scene)}`,
         `Current NPC session state: ${JSON.stringify(request.npcState ?? {})}`,
         `Recent dialogue: ${JSON.stringify(request.recentDialogue ?? [])}`,
+        directThreat ? `Direct threat policy hint: ${directThreat.reason} Use dangerLevel ${directThreat.dangerLevel}.` : '',
         `Player message: ${request.playerText}`,
         `NPC reply: ${reply.text}`,
         `Reply mood hint: ${reply.mood}`,
@@ -127,6 +131,7 @@ export function compileDialogueMoodAssessmentPrompt(npc: NpcDefinition, request:
 }
 
 export function compileDialogueActionPrompt(npc: NpcDefinition, request: DialogueRequest, reply: DialogueTurn, assessment: DialogueMoodAssessment, ctx: PromptCompileContext): ChatMessage[] {
+  const directThreat = ctx.policies.escalateDirectThreats === false ? undefined : detectDirectPlayerThreat(request.playerText);
   const compactAssessment = {
     mood: assessment.mood,
     attitudeDelta: assessment.attitudeDelta,
@@ -143,12 +148,14 @@ export function compileDialogueActionPrompt(npc: NpcDefinition, request: Dialogu
         'This is a game-system action decision. It is not tool calling; choose only one action enum.',
         'Allowed type values: none, endConversation, callForHelp.',
         'Choose callForHelp only when dangerLevel is threat or panic, or the player clearly threatens harm, robbery, arson, or pursuit.',
+        'If the player directly threatens to fight, attack, hurt, kill, rob, or force the NPC to run, choose callForHelp.',
         'Choose endConversation when the NPC is angry, offended, hostile, afraid, or unwilling to continue, but danger is not high enough for help.',
         'Choose none for ordinary questions, confusion, mild fear about the local situation, or normal conversation.',
         'If type is callForHelp, shouldEndConversation must be true.',
         'Keep reason concrete and under one sentence.',
         `NPC: ${npc.id} ${npc.persona.name}, ${npc.persona.role}`,
         `Scene: ${JSON.stringify(request.scene)}`,
+        directThreat ? `Direct threat policy hint: ${directThreat.reason} Choose callForHelp.` : '',
         `Player message: ${request.playerText}`,
         `NPC reply: ${reply.text}`,
         `Assessment: ${JSON.stringify(compactAssessment)}`,

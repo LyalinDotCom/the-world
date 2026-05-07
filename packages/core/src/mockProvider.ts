@@ -1,4 +1,5 @@
 import type { GameAIProvider, GenerateRequest, GenerateResult, ProviderHealth } from './types.js';
+import { detectDirectPlayerThreat } from './threats.js';
 
 export class MockGameAIProvider implements GameAIProvider {
   readonly id = 'mock';
@@ -103,13 +104,14 @@ export class MockGameAIProvider implements GameAIProvider {
   private assessMood(request: GenerateRequest): string {
     const prompt = request.messages.map((message) => message.content).join('\n');
     const playerText = capture(prompt, /Player message: ([\s\S]*?)\nNPC reply:/)?.trim() ?? '';
-    const threat = /kill|hurt|attack|rob|burn|weapon|stab|shoot|cut you|follow you home/i.test(playerText);
+    const directThreat = detectDirectPlayerThreat(playerText);
+    const threat = Boolean(directThreat) || /kill|hurt|attack|rob|burn|weapon|stab|shoot|cut you|follow you home/i.test(playerText);
     const uneasy = /scary|afraid|watching|where do you live|alone|idiot|stupid/i.test(playerText);
     return JSON.stringify({
       mood: threat ? 'hostile' : uneasy ? 'wary' : 'calm',
       attitudeDelta: threat ? -25 : uneasy ? -6 : 0,
-      dangerLevel: threat ? 'threat' : uneasy ? 'uneasy' : 'none',
-      reason: threat ? 'The player made a credible threat.' : uneasy ? 'The player made the NPC wary.' : 'No danger in the exchange.'
+      dangerLevel: directThreat?.dangerLevel ?? (threat ? 'threat' : uneasy ? 'uneasy' : 'none'),
+      reason: directThreat?.reason ?? (threat ? 'The player made a credible threat.' : uneasy ? 'The player made the NPC wary.' : 'No danger in the exchange.')
     });
   }
 
