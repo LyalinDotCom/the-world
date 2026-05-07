@@ -2,8 +2,10 @@ import { describe, expect, it } from 'vitest';
 import {
   DialogueActionDecisionSchema,
   DialogueMoodAssessmentSchema,
+  DialogueRequestSchema,
   DialogueTurnSchema,
   GameAIEventSchema,
+  SceneContextSchema,
   dialogueActionDecisionJsonSchema,
   dialogueMoodAssessmentJsonSchema,
   dialogueTurnJsonSchema
@@ -79,6 +81,26 @@ describe('schema parity', () => {
         dangerLevel
       }).success).toBe(true);
     }
+  });
+
+  it('validates generic scene context for IPC and app adapters', () => {
+    expect(SceneContextSchema.safeParse({
+      location: 'Cindervale Crossing',
+      visibleFeatures: ['old bridge', 'lantern post'],
+      contextualFacts: ['The bridge was closed after three travelers vanished.'],
+      metadata: { regionId: 'cindervale' }
+    }).success).toBe(true);
+
+    expect(DialogueRequestSchema.safeParse({
+      playerText: 'What is going on here?',
+      scene: {
+        location: 'Cindervale Crossing',
+        contextualFacts: ['The bridge was closed after three travelers vanished.']
+      },
+      recentDialogue: [
+        { speaker: 'You', text: 'Hello.' }
+      ]
+    }).success).toBe(true);
   });
 });
 

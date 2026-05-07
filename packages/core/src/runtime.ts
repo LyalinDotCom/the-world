@@ -35,6 +35,7 @@ export class GameAI {
     if (!recipe) {
       throw new Error(`Unknown GameAI recipe: ${recipeId}`);
     }
+    throwIfAborted(options.signal);
 
     const configuredCacheOnly = this.config.runtime?.pregeneration?.cacheOnlyRuntimeRecipes?.includes(recipeId) ?? false;
     const cacheMode = options.cacheMode ?? (configuredCacheOnly ? 'cache-only' : options.bypassCache ? 'refresh' : 'read-through');
@@ -65,6 +66,7 @@ export class GameAI {
         temperature: recipe.temperature,
         maxTokens: recipe.maxTokens,
         timeoutMs: options.timeoutMs ?? this.config.runtime?.maxLatencyMs,
+        signal: options.signal,
         metadata: metadataForRecipe(recipeId, input)
       });
       rawText = response.text;
@@ -100,6 +102,9 @@ export class GameAI {
       }
       return result;
     } catch (error) {
+      if (isAbortError(error, options.signal)) {
+        throw error;
+      }
       fallback = true;
       const reason = error instanceof Error ? error.message : String(error);
       const result = attachTrace(recipe.fallback(input, context, reason), {
@@ -155,7 +160,8 @@ export class GameAINpc {
       cacheKey: options.cacheKey,
       bypassCache: !cacheBacked,
       cacheMode: cacheModeFromOptions(options),
-      timeoutMs: options.timeoutMs ?? 20_000
+      timeoutMs: options.timeoutMs ?? 20_000,
+      signal: options.signal
     });
 
     const assessed = options.assess && !result.trace?.fallback
@@ -184,7 +190,8 @@ export class GameAINpc {
     }, {
       cacheKey: options.cacheKey ?? `bark:${this.definition.id}:${request.scene.location}:${request.reason ?? ''}:${request.scene.timeOfDay ?? ''}`,
       cacheMode: cacheModeFromOptions(options),
-      timeoutMs: options.timeoutMs ?? 8_000
+      timeoutMs: options.timeoutMs ?? 8_000,
+      signal: options.signal
     });
   }
 
@@ -195,7 +202,8 @@ export class GameAINpc {
     }, {
       cacheKey: options.cacheKey ?? `overhear:${this.definition.id}:${request.otherNpc.id}:${request.scene.location}:${request.topic ?? ''}`,
       cacheMode: cacheModeFromOptions(options),
-      timeoutMs: options.timeoutMs ?? 12_000
+      timeoutMs: options.timeoutMs ?? 12_000,
+      signal: options.signal
     });
   }
 
@@ -206,7 +214,8 @@ export class GameAINpc {
       reply
     }, {
       bypassCache: true,
-      timeoutMs: Math.min(options.timeoutMs ?? 12_000, 12_000)
+      timeoutMs: Math.min(options.timeoutMs ?? 12_000, 12_000),
+      signal: options.signal
     });
     const action = await this.ai.run<NpcDialogueActionRecipeInput, DialogueActionDecision>(npcDialogueActionRecipe.id, {
       npc: this.definition,
@@ -215,7 +224,8 @@ export class GameAINpc {
       assessment
     }, {
       bypassCache: true,
-      timeoutMs: Math.min(options.timeoutMs ?? 10_000, 10_000)
+      timeoutMs: Math.min(options.timeoutMs ?? 10_000, 10_000),
+      signal: options.signal
     });
     const analysisTraces = [assessment.trace, action.trace].filter((trace): trace is DebugTrace => Boolean(trace));
     const shouldEndConversation = Boolean(reply.shouldEndConversation || action.shouldEndConversation || action.type === 'callForHelp');
@@ -291,6 +301,20 @@ function metadataForRecipe(recipeId: string, input: unknown): Record<string, unk
     metadata.npcName = input.npc.persona.name;
   }
   return metadata;
+}
+
+function throwIfAborted(signal: AbortSignal | undefined): void {
+  if (!signal?.aborted) return;
+  if (signal.reason instanceof Error) {
+    throw signal.reason;
+  }
+  const error = new Error('Operation aborted.');
+  error.name = 'AbortError';
+  throw error;
+}
+
+function isAbortError(error: unknown, signal: AbortSignal | undefined): boolean {
+  return Boolean(signal?.aborted) || (error instanceof Error && error.name === 'AbortError');
 }
 
 export type InferRecipeOutput<T extends RecipeDefinition<unknown, unknown>> = T extends RecipeDefinition<unknown, infer TOutput> ? TOutput : never;

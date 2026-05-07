@@ -34,6 +34,94 @@ export const AnimationHintSchema = z.enum([
   'thinking'
 ]);
 
+export const SceneContextSchema = z.object({
+  location: z.string().min(1).max(160),
+  biome: z.string().min(1).max(80).optional(),
+  timeOfDay: z.string().min(1).max(80).optional(),
+  weather: z.string().min(1).max(120).optional(),
+  nearbyCharacters: z.array(z.string().min(1).max(120)).max(64).optional(),
+  coordinates: z.object({
+    x: z.number().finite(),
+    y: z.number().finite()
+  }).optional(),
+  visibleFeatures: z.array(z.string().min(1).max(160)).max(64).optional(),
+  contextualFacts: z.array(z.string().min(1).max(320)).max(64).optional(),
+  metadata: z.record(z.string(), z.unknown()).optional()
+});
+
+export const PlayerContextSchema = z.object({
+  id: z.string().min(1).max(120).optional(),
+  name: z.string().min(1).max(120).optional(),
+  knownFacts: z.array(z.string().min(1).max(240)).max(64).optional(),
+  visibleEquipment: z.array(z.string().min(1).max(120)).max(64).optional(),
+  reputation: z.record(z.string(), z.number().finite()).optional()
+});
+
+export const NpcPersonaSchema = z.object({
+  name: z.string().min(1).max(120),
+  role: z.string().min(1).max(120),
+  traits: z.array(z.string().min(1).max(80)).max(24).optional(),
+  speechStyle: z.string().min(1).max(300).optional(),
+  mood: NpcMoodSchema.optional(),
+  goals: z.array(z.string().min(1).max(180)).max(24).optional(),
+  secrets: z.array(z.string().min(1).max(240)).max(24).optional(),
+  knows: z.array(z.string().min(1).max(240)).max(64).optional(),
+  doesNotKnow: z.array(z.string().min(1).max(240)).max(64).optional(),
+  rules: z.array(z.string().min(1).max(260)).max(32).optional()
+});
+
+export const NpcDefinitionSchema = z.object({
+  id: z.string().min(1).max(160),
+  persona: NpcPersonaSchema,
+  memory: z.object({
+    scope: z.enum(['npc', 'scene', 'world']).optional(),
+    maxEntries: z.number().int().min(1).max(1_000).optional()
+  }).optional()
+});
+
+export const NpcGenerationOptionsSchema = z.object({
+  timeoutMs: z.number().finite().min(1).max(120_000).optional(),
+  cacheKey: z.string().min(1).max(500).optional(),
+  cacheOnly: z.boolean().optional(),
+  refresh: z.boolean().optional(),
+  writeMemory: z.boolean().optional(),
+  assess: z.boolean().optional()
+});
+
+const DialogueLineSchema = z.object({
+  speaker: z.string().min(1).max(120),
+  text: z.string().min(1).max(1_000)
+});
+
+const NpcSessionStateSchema = z.object({
+  mood: NpcMoodSchema,
+  disposition: z.number().finite().min(-100).max(100),
+  willTalkAgain: z.boolean(),
+  refusalReason: z.string().min(1).max(180).optional()
+});
+
+export const DialogueRequestSchema = z.object({
+  playerText: z.string().min(1).max(1_000),
+  scene: SceneContextSchema,
+  player: PlayerContextSchema.optional(),
+  relationship: z.string().min(1).max(120).optional(),
+  conversationId: z.string().min(1).max(160).optional(),
+  npcState: NpcSessionStateSchema.optional(),
+  recentDialogue: z.array(DialogueLineSchema).max(24).optional()
+});
+
+export const BarkRequestSchema = z.object({
+  scene: SceneContextSchema,
+  player: PlayerContextSchema.optional(),
+  reason: z.string().min(1).max(240).optional()
+});
+
+export const OverhearRequestSchema = z.object({
+  otherNpc: NpcDefinitionSchema,
+  scene: SceneContextSchema,
+  topic: z.string().min(1).max(320).optional()
+});
+
 export const MemoryWriteSchema = z.object({
   scope: z.enum(['npc', 'player', 'world', 'scene']),
   id: z.string().optional(),

@@ -7,7 +7,7 @@ export function worldSystemPrompt(world: GameAIWorldConfig, policies: GameAIPoli
     `World: ${world.name ?? world.id}.`,
     world.styleGuide ? `Style guide: ${world.styleGuide}` : 'Style guide: grounded, concise, sensory, no modern slang unless the NPC persona allows it.',
     world.lore?.length ? `Canon lore:\n${world.lore.map((line) => `- ${line}`).join('\n')}` : 'Canon lore: the local world state provided in the request is authoritative.',
-    policies.canonOnly ? 'Canon policy: do not invent major factions, towns, gods, quest outcomes, rewards, or player actions.' : 'Canon policy: minor local color is allowed if it does not affect game state.',
+    policies.canonOnly ? 'Canon policy: do not invent major factions, settlements, powers, quest outcomes, rewards, or player actions.' : 'Canon policy: minor local color is allowed if it does not affect game state.',
     policies.noQuestMutationWithoutTool ?? true ? 'Game integrity: propose game-state changes as events only; never claim rewards, inventory, or quest completion happened.' : '',
     policies.noRewardCreation ?? true ? 'Rewards: do not create money, items, reputation, or quest rewards in dialogue.' : '',
     `Content rating: ${policies.contentRating ?? 'T'}.`
@@ -32,11 +32,11 @@ export function compileDialoguePrompt(npc: NpcDefinition, request: DialogueReque
         'Recipe: npc.dialogue.turn',
         'Return one JSON object with text, emotion, mood, attitudeDelta, willTalkAgain, animationHint, events, memoryWrites, safetyFlags, and optional shouldEndConversation/refusalReason.',
         'Keep the NPC reply to 1-3 short sentences. The NPC may end the conversation if the player says goodbye, is rude, scary, insulting, or the scene demands it.',
-        'For simple greetings, greet briefly and ask what the player needs. Do not volunteer landmark rumors or warnings until the player asks for information.',
+        'For simple greetings, greet briefly and ask what the player needs. Do not volunteer local exposition or warnings until the player asks for information.',
         'Answer the player directly before adding color. If they ask a factual question, give a plain concrete answer first.',
         'Every non-greeting reply should include at least one concrete detail from the scene, NPC role, known lore, recent dialogue, or the NPCs limits of knowledge.',
         'Do not hide the answer inside vague mystical phrasing. Avoid replies that only say things are old, strange, not understood, or that roads/paths shift unless you also name a specific observed event, place, person, or practical warning.',
-        'If the player asks what is going on, what is scary, or what is wrong with a town, name the most relevant town/landmark/rumor and give one practical local warning without revealing hidden causes.',
+        'If the player asks what is going on, what is scary, or what is wrong here, name the most relevant place, source, or observed problem and give one practical local warning without revealing hidden causes.',
         'If the player asks the NPCs age, the first sentence must contain either a plausible approximate number of years or a plain refusal such as "I do not give my age." Do not redirect the question and do not answer only with metaphor.',
         'Mood is the NPC mood after replying: calm, curious, wary, busy, lonely, cheerful, afraid, angry, offended, or hostile.',
         'attitudeDelta is how this exact player message changed the NPC attitude from -30 to 30.',
@@ -144,7 +144,7 @@ export function compileDialogueActionPrompt(npc: NpcDefinition, request: Dialogu
         'Allowed type values: none, endConversation, callForHelp.',
         'Choose callForHelp only when dangerLevel is threat or panic, or the player clearly threatens harm, robbery, arson, or pursuit.',
         'Choose endConversation when the NPC is angry, offended, hostile, afraid, or unwilling to continue, but danger is not high enough for help.',
-        'Choose none for ordinary questions, confusion, mild fear about the town, or normal conversation.',
+        'Choose none for ordinary questions, confusion, mild fear about the local situation, or normal conversation.',
         'If type is callForHelp, shouldEndConversation must be true.',
         'Keep reason concrete and under one sentence.',
         `NPC: ${npc.id} ${npc.persona.name}, ${npc.persona.role}`,
@@ -173,7 +173,7 @@ export function compileOverhearPrompt(npc: NpcDefinition, request: OverhearReque
         `NPC A: ${npc.id} ${npc.persona.name}, ${npc.persona.role}, mood ${npc.persona.mood ?? 'calm'}`,
         `NPC B: ${request.otherNpc.id} ${request.otherNpc.persona.name}, ${request.otherNpc.persona.role}, mood ${request.otherNpc.persona.mood ?? 'calm'}`,
         `Scene: ${JSON.stringify(request.scene)}`,
-        request.topic ? `Topic: ${request.topic}` : 'Topic: nearby travel, weather, rumors, or work.',
+        request.topic ? `Topic: ${request.topic}` : 'Topic: nearby travel, weather, local talk, or work.',
         ctx.memory.length ? `Relevant memory:\n${ctx.memory.map((line) => `- ${line}`).join('\n')}` : ''
       ].filter(Boolean).join('\n')
     }

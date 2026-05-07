@@ -130,7 +130,9 @@ export interface SceneContext {
     x: number;
     y: number;
   };
-  visibleLandmarks?: string[];
+  visibleFeatures?: string[];
+  contextualFacts?: string[];
+  metadata?: Record<string, unknown>;
 }
 
 export interface PlayerContext {
@@ -286,6 +288,7 @@ export interface RunRecipeOptions {
   cacheKey?: string;
   bypassCache?: boolean;
   cacheMode?: 'read-through' | 'cache-only' | 'refresh';
+  signal?: AbortSignal;
 }
 
 export interface NpcGenerationOptions {
@@ -295,4 +298,5 @@ export interface NpcGenerationOptions {
   refresh?: boolean;
   writeMemory?: boolean;
   assess?: boolean;
+  signal?: AbortSignal;
 }

@@ -134,6 +134,38 @@ describe('GameAI runtime', () => {
     expect(generateCount).toBe(1);
   });
 
+  it('passes abort signals to providers and does not turn canceled requests into fallbacks', async () => {
+    const controller = new AbortController();
+    let receivedSignal: AbortSignal | undefined;
+    const provider: GameAIProvider = {
+      id: 'cancel-capture',
+      async generate(request) {
+        receivedSignal = request.signal;
+        controller.abort();
+        const error = new Error('Aborted');
+        error.name = 'AbortError';
+        throw error;
+      }
+    };
+    const ai = createGameAI({
+      provider,
+      world: { id: 'test-world' },
+      runtime: { cache: 'none' }
+    });
+    const npc = ai.npc({
+      id: 'npc.guard.elda',
+      persona: { name: 'Elda', role: 'road guard' }
+    });
+
+    await expect(npc.respond({
+      playerText: 'Hello.',
+      scene: { location: 'Road' }
+    }, {
+      signal: controller.signal
+    })).rejects.toThrow('Aborted');
+    expect(receivedSignal).toBe(controller.signal);
+  });
+
   it('compiles dialogue prompts with concrete-answer guidance', async () => {
     let prompt = '';
     const provider: GameAIProvider = {
@@ -165,7 +197,7 @@ describe('GameAI runtime', () => {
     });
 
     await npc.respond({
-      playerText: 'What is going on in this town?',
+      playerText: 'What is going on here?',
       scene: { location: 'Cindervale' }
     });
 

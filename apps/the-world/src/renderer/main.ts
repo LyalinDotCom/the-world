@@ -131,6 +131,7 @@ let lastFootstepAt = 0;
 let wallPulseUntil = 0;
 let interactionKey = '';
 let activeNpcPosition: Vec2 | undefined;
+let activeDialogueRequestId: string | undefined;
 let traceOpen = false;
 let clickableNpcs: GeneratedNpc[] = [];
 let diagnosticsHistory: number[] = [];
@@ -998,12 +999,15 @@ async function interruptPrivateConversation(npc: GeneratedNpc): Promise<void> {
 async function sendToNpc(text: string): Promise<void> {
   if (!activeNpc) return;
   const npc = activeNpc;
+  const requestId = nextAiRequestId('dialogue', npc.id);
+  activeDialogueRequestId = requestId;
   busy = true;
   const thinkingBubbleId = showThinkingBubble(npc);
   conversation.push({ speaker: 'You', text, kind: 'player' });
   renderDialogue();
   try {
     const turn = await ai.dialogue({
+      requestId,
       npc: stripRuntimeNpc(npc),
       request: {
         playerText: text,
@@ -1039,6 +1043,9 @@ async function sendToNpc(text: string): Promise<void> {
     traceLine = `dialogue failed / ${message}`;
     traceDetail = '';
   } finally {
+    if (activeDialogueRequestId === requestId) {
+      activeDialogueRequestId = undefined;
+    }
     clearBubble(thinkingBubbleId);
     busy = false;
     renderDialogue();
@@ -1142,6 +1149,7 @@ function spawnConstables(npc: GeneratedNpc, reason: string): void {
 }
 
 function closeConversation(): void {
+  cancelActiveDialogueRequest();
   activeNpc = undefined;
   activeNpcPosition = undefined;
   busy = false;
@@ -1149,6 +1157,17 @@ function closeConversation(): void {
   conversation = [];
   interactionKey = '';
   renderDialogue();
+}
+
+function nextAiRequestId(kind: string, ownerId: string): string {
+  return `${kind}:${ownerId}:${Date.now()}:${Math.random().toString(36).slice(2)}`;
+}
+
+function cancelActiveDialogueRequest(): void {
+  if (!activeDialogueRequestId) return;
+  const requestId = activeDialogueRequestId;
+  activeDialogueRequestId = undefined;
+  void ai.cancel({ requestId }).catch(() => undefined);
 }
 
 function maybeRequestAmbient(now: number, nearby: GeneratedNpc[]): void {
@@ -1449,12 +1468,12 @@ function sceneAt(point: Vec2) {
       x: Math.round(point.x),
       y: Math.round(point.y)
     },
-    visibleLandmarks: visibleLandmarks(point),
-    landmarkLore: nearbyLandmarks.map((landmark) => `${landmark.name}: ${landmark.lore}`)
+    visibleFeatures: visibleFeatures(point),
+    contextualFacts: nearbyLandmarks.map((landmark) => `${landmark.name}: ${landmark.lore}`)
   };
 }
 
-function visibleLandmarks(point: Vec2 = player): string[] {
+function visibleFeatures(point: Vec2 = player): string[] {
   const nearby = nearestLandmarks(point, 1350).map((landmark) => landmark.name);
   const ambient = ['waystone', 'split pine', 'low ridge']
     .filter((_, index) => Math.abs(Math.round(point.x / 700) + Math.round(point.y / 700) + index) % 3 === 0);

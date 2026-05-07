@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { IpcMain } from 'electron';
-import { createGameAI, MockGameAIProvider } from '@game-llm/core';
+import { createGameAI, MockGameAIProvider, type GameAIProvider } from '@game-llm/core';
 import { registerGameAIIpc } from '../src/index.js';
 
 function createFakeIpcMain() {
@@ -34,7 +34,7 @@ describe('GameAI Electron IPC bridge', () => {
         playerText: 'Hello.',
         scene: { location: 'Road' }
       }
-    })).rejects.toThrow('dialogue payload.npc.persona must be an object');
+    })).rejects.toThrow(/Invalid dialogue payload: .*npc\.persona/);
   });
 
   it('accepts valid dialogue payloads', async () => {
@@ -63,6 +63,44 @@ describe('GameAI Electron IPC bridge', () => {
     });
   });
 
+  it('can cancel an in-flight dialogue request by request id', async () => {
+    let receivedSignal: AbortSignal | undefined;
+    const provider: GameAIProvider = {
+      id: 'slow-provider',
+      async generate(request) {
+        receivedSignal = request.signal;
+        return await new Promise((_, reject) => {
+          request.signal?.addEventListener('abort', () => reject(abortError()), { once: true });
+        });
+      }
+    };
+    const ai = createGameAI({
+      provider,
+      world: { id: 'test-world' },
+      runtime: { cache: 'none' }
+    });
+    const { ipcMain, handlers } = createFakeIpcMain();
+    registerGameAIIpc(ipcMain, ai);
+
+    const dialogue = handlers.get('game-ai:dialogue')!({}, {
+      requestId: 'dialogue-1',
+      npc: {
+        id: 'npc.guard.elda',
+        persona: { name: 'Elda', role: 'guard' }
+      },
+      request: {
+        playerText: 'Hello.',
+        scene: { location: 'Road' }
+      }
+    });
+
+    await expect(handlers.get('game-ai:cancel')!({}, {
+      requestId: 'dialogue-1'
+    })).resolves.toEqual({ canceled: true });
+    await expect(dialogue).rejects.toThrow('Aborted');
+    expect(receivedSignal?.aborted).toBe(true);
+  });
+
   it('caps pregeneration jobs at the bridge boundary', async () => {
     const ai = createGameAI({
       provider: new MockGameAIProvider(),
@@ -83,6 +121,12 @@ describe('GameAI Electron IPC bridge', () => {
           scene: { location: 'Road' }
         }
       }))
-    })).rejects.toThrow('preGenerate payload.jobs must contain 80 jobs or fewer');
+    })).rejects.toThrow(/Invalid preGenerate payload: .*jobs/);
   });
 });
+
+function abortError(): Error {
+  const error = new Error('Aborted');
+  error.name = 'AbortError';
+  return error;
+}
