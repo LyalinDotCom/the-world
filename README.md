@@ -1,65 +1,291 @@
 # The World
 
-The World is a prototype for **AI middleware for games** plus a playable Electron test game. It is meant to demonstrate how local LLMs can behave like controlled game systems instead of loose chatbots.
+**The World** is a prototype SDK for game-native local AI plus a playable Electron demo that proves the runtime path works with Gemma through Ollama.
 
-The core idea is:
+The core promise:
 
 > Dynamic game text without surrendering control of your game.
 
-This repo shows a small but working slice of that idea: a game developer defines NPCs, scene context, lore, policies, and output schemas; the runtime compiles prompts, calls a local model through Ollama, validates or repairs the result, records memory, and returns typed game events the game can choose to accept.
+This repo is not mainly a game. The game is the showcase. The main product idea is a TypeScript toolkit that lets developers turn local LLMs into controlled, schema-bound, lore-aware game systems: NPC dialogue, ambient barks, overheard conversations, memory, policy checks, cache-first runtime behavior, diagnostics, and safe Electron IPC.
 
-## What This Demonstrates
+![The World playable demo](docs/the-world-demo.png)
 
-- A game-native TypeScript API for NPC dialogue, ambient barks, and overheard NPC-to-NPC exchanges.
-- Schema-first LLM output so dialogue returns structured `DialogueTurn` objects, not arbitrary prose.
-- A provider boundary where Ollama/Gemma is one backend, not the whole product.
-- Safe Electron integration that keeps model access in the main process and exposes a narrow IPC bridge to the renderer.
-- Model warmup on startup so the first real conversation is less likely to pay the full local model-load cost.
-- A fixed large 2D map with three towns, named woods, roads, houses, special landmarks, generated NPCs, click-to-talk interaction, free-text replies, and a Goodbye flow.
-- Small NPC groups that carry on private overheard conversations and refuse interruption.
-- A game-level ambient stage manager that caps visible ambient speakers, rotates pairs/topics, moves NPCs together before short exchanges, and reserves single barks for rare announcements.
-- A minimap, random town-adjacent spawn, invisible map walls, collision, and walking effects so the demo feels like a playable place instead of a chat panel.
-- A collapsible diagnostics panel that surfaces provider/model/cache/fallback behavior plus live FPS, CPU, GPU, and memory telemetry.
-- Optional JSONL performance recording so a play session can be analyzed by location, movement, interactions, FPS, CPU, GPU, and memory.
+## What Developers Get
 
-This is not trying to be a finished RPG yet. It is a technical demo of the runtime shape: how a game engine can ask an LLM for controlled, typed, lore-aware behavior during play.
+- `@game-llm/core`: NPC definitions, scene context, schema-bound recipes, prompt compilation, memory, cache, validation, repair, fallback behavior, cancellation, and a deterministic mock provider for tests.
+- `@game-llm/ollama`: local Ollama provider with health checks, installed-model discovery, warmup, structured JSON calls, Gemma-friendly defaults, timing/token metrics, and `AbortSignal` support.
+- `@game-llm/electron`: safe IPC bridge so a renderer can request dialogue, barks, overheard exchanges, warmup, pregeneration, and cancellation without arbitrary model access.
+- `apps/the-world`: a playable canvas/Electron demo that uses the SDK under real runtime pressure.
 
-The repo contains:
+The package boundary is deliberate: **core knows games, providers know models, apps know their own lore**.
 
-- `@game-llm/core`: game-native TypeScript runtime concepts: NPCs, schema-bound dialogue turns, prompt compilation, memory, recipes, cache, debug traces, and a mock provider.
-- `@game-llm/ollama`: Ollama adapter with model listing, health checks, JSON-schema generation, and a low-end Gemma-friendly default.
-- `@game-llm/electron`: safe Electron IPC helpers that keep model access in the main process.
-- `apps/the-world`: a bounded 2D exploration demo with towns, woods, paths, NPCs, overheard barks, and natural-language conversations.
+## SDK Quick Start
 
-## Architecture
+These packages are local workspace packages right now. A future published version would look like normal NPM installs, but in this repo you can import directly from the workspaces.
 
-```txt
-packages/core
-  Game concepts: NPC definitions, prompt compiler, memory, recipes,
-  schemas, validation, repair, fallback, mock provider.
+```ts
+import { createGameAI } from '@game-llm/core';
+import { ollamaProvider } from '@game-llm/ollama';
 
-packages/ollama
-  Local model adapter: health checks, installed-model awareness,
-  warmup, structured JSON calls, Gemma-friendly thinking control.
+const ai = createGameAI({
+  provider: ollamaProvider({
+    model: 'gemma4:e4b',
+    host: 'http://127.0.0.1:11434',
+    keepAlive: '10m'
+  }),
+  world: {
+    id: 'emberfall',
+    name: 'Emberfall',
+    lore: [
+      'Rivergate avoids the old mill after dark.',
+      'The Iron Crows are mercenaries, not royal soldiers.'
+    ],
+    styleGuide: 'Grounded low fantasy. Short sentences. No modern slang.'
+  },
+  runtime: {
+    mode: 'local-only',
+    cache: 'session',
+    maxLatencyMs: 24_000,
+    pregeneration: {
+      enabled: true,
+      cacheOnlyRuntimeRecipes: ['npc.bark', 'npc.overhear']
+    }
+  },
+  policies: {
+    canonOnly: true,
+    noQuestMutationWithoutTool: true,
+    noRewardCreation: true,
+    contentRating: 'T'
+  }
+});
 
-packages/electron
-  IPC bridge: renderer can request health, warmup, dialogue, bark,
-  and overhear calls without direct arbitrary model access.
-
-apps/the-world
-  Electron shell and canvas renderer for the playable demo.
+await ai.provider.warmup?.({
+  prompt: 'Warm up for short schema-bound NPC dialogue.',
+  timeoutMs: 45_000
+});
 ```
 
-The Electron main process owns the AI runtime. The renderer owns player movement, canvas drawing, NPC proximity detection, and UI. When the player talks to an NPC, the renderer sends a narrow structured request over IPC; the main process returns a typed dialogue result.
+## Define An NPC
 
-## Run
+The SDK API exposes game concepts, not raw chat.
+
+```ts
+const blacksmith = ai.npc({
+  id: 'npc.blacksmith.orin',
+  persona: {
+    name: 'Orin',
+    role: 'village blacksmith',
+    traits: ['gruff', 'protective', 'superstitious'],
+    mood: 'wary',
+    speechStyle: 'Short practical replies. Dry humor. No modern slang.',
+    knows: [
+      'Rivergate locals fear the old mill.',
+      'The mill wheel turns on still nights.'
+    ],
+    doesNotKnow: [
+      'the true cause beneath the old mill'
+    ],
+    rules: [
+      'Answer direct questions plainly before adding color.',
+      'Do not invent towns, factions, rewards, or player actions.',
+      'Do not reveal hidden causes before the player earns trust.'
+    ]
+  },
+  memory: {
+    scope: 'npc',
+    maxEntries: 50
+  }
+});
+```
+
+## Run Dialogue
+
+Every dialogue request carries structured scene and player context. The model returns a typed `DialogueTurn`, not arbitrary prose.
+
+```ts
+const controller = new AbortController();
+
+const turn = await blacksmith.respond({
+  playerText: 'Why is everyone scared of the old mill?',
+  scene: {
+    location: 'Rivergate',
+    biome: 'river road',
+    timeOfDay: 'late afternoon',
+    weather: 'thin cloud',
+    nearbyCharacters: ['npc.guard.elda'],
+    visibleFeatures: ['The Old Mill', 'river bridge', 'waystone'],
+    contextualFacts: [
+      'The Old Mill creaks after sunset even when the air is still.',
+      'Locals lower their voices when they talk about the mill.'
+    ],
+    coordinates: { x: -1605, y: -652 }
+  },
+  player: {
+    id: 'player',
+    knownFacts: ['The old mill is avoided after dark.'],
+    visibleEquipment: ['travel cloak', 'worn boots']
+  },
+  relationship: 'new acquaintance',
+  npcState: {
+    mood: 'wary',
+    disposition: 10,
+    willTalkAgain: true
+  }
+}, {
+  assess: true,
+  timeoutMs: 20_000,
+  signal: controller.signal
+});
+
+console.log(turn.text);
+console.log(turn.mood);
+console.log(turn.events);
+```
+
+`DialogueTurn` includes:
+
+- `text`: the line to show in the game.
+- `emotion` and `animationHint`: presentation hints.
+- `mood`, `attitudeDelta`, `willTalkAgain`, and `refusalReason`: session state.
+- `events`: typed game events such as `dialogue.say`, `npc.emotion`, or `npc.callForHelp`.
+- `memoryWrites`: durable facts the game may store.
+- `safetyFlags`: warnings or blocks.
+- `trace`: prompt, provider, model, latency, cache status, raw output, and schema repair details.
+
+The game engine still owns authority. The model can propose events; the game decides what to accept.
+
+## Dialogue Assessment And Actions
+
+The demo uses three small model calls for player conversations:
+
+1. Generate the NPC reply.
+2. Assess mood and danger.
+3. Decide whether the NPC should continue, end the conversation, or call for help.
+
+That split is intentional. Small local models are more reliable when each pass has one simple job. The action pass returns an enum, not arbitrary tool execution:
+
+```ts
+type DialogueActionType = 'none' | 'endConversation' | 'callForHelp';
+```
+
+In the sample game, `callForHelp` spawns constables and ends the conversation. In a real game, the same event would go through the game's validation and authority layer.
+
+## Runtime Controls
+
+Local models can be expensive during play, so the SDK is built around control points.
+
+**Warmup**
+
+```ts
+await ai.provider.warmup?.({ timeoutMs: 45_000 });
+```
+
+This keeps the model loaded before the player needs the first real reply.
+
+**Cache-first runtime recipes**
+
+```ts
+runtime: {
+  cache: 'session',
+  pregeneration: {
+    enabled: true,
+    cacheOnlyRuntimeRecipes: ['npc.bark', 'npc.overhear']
+  }
+}
+```
+
+For ambient text, the shipped game pre-generates barks and overheard exchanges, then uses cache-only reads while the player walks. That prevents background Gemma calls from dragging down movement and frame rate.
+
+**Refresh pregenerated content**
+
+```ts
+await npc.bark(request, {
+  cacheKey: 'bark:npc.guard.elda:rivergate:warning',
+  refresh: true,
+  writeMemory: false
+});
+```
+
+**Cancel abandoned requests**
+
+```ts
+const controller = new AbortController();
+const promise = npc.respond(request, { signal: controller.signal });
+
+controller.abort();
+await promise;
+```
+
+The Ollama adapter receives the signal. Canceled requests are not converted into fake fallback dialogue.
+
+## Electron Integration
+
+The Electron package keeps model access in the main process. The renderer gets a narrow bridge.
+
+Main process:
+
+```ts
+import { createGameAI } from '@game-llm/core';
+import { registerGameAIIpc } from '@game-llm/electron';
+import { ollamaProvider } from '@game-llm/ollama';
+
+const ai = createGameAI({
+  provider: ollamaProvider({ model: 'gemma4:e4b' }),
+  world: { id: 'the-world' },
+  runtime: { cache: 'session' }
+});
+
+const cleanup = registerGameAIIpc(ipcMain, ai);
+```
+
+Preload:
+
+```ts
+import { contextBridge, ipcRenderer } from 'electron';
+import { exposeGameAIBridge } from '@game-llm/electron';
+
+exposeGameAIBridge(contextBridge, ipcRenderer);
+```
+
+Renderer:
+
+```ts
+const requestId = `dialogue:${npc.id}:${Date.now()}`;
+
+const turn = await window.gameAI.dialogue({
+  requestId,
+  npc,
+  request,
+  options: { assess: true }
+});
+
+await window.gameAI.cancel({ requestId });
+```
+
+The IPC bridge validates payloads with the shared Zod schemas from `@game-llm/core`.
+
+## The Playable Demo
+
+`apps/the-world` is a stress test for the SDK ideas:
+
+- Fixed large 2D map with Rivergate, Mosswake, Cindervale, woods, roads, houses, and marked landmarks.
+- Random spawn near one of the towns.
+- Click-to-talk NPC interaction with free-text Gemma replies.
+- NPC mood/disposition state and Gemma-controlled refusal/end-conversation behavior.
+- Private NPC groups that speak to each other and refuse interruption.
+- Ambient stage manager that caps visible ambient speakers, rotates topics, and moves NPCs together before short exchanges.
+- Pregenerated ambient cache so walking does not constantly call Gemma.
+- Minimap, invisible map walls, building collision, walking effects, and live FPS.
+- Diagnostics panel for provider/model/cache/fallback, prompt traces, CPU, GPU, GPU memory, machine memory, app memory, and optional JSONL performance logs.
+
+The renderer intentionally has no playable fake-AI fallback. If the Electron/Gemma path is broken, the demo should make that obvious.
+
+## Run The Demo
 
 ```sh
 npm install
 npm start
 ```
-
-`npm start` builds the packages and launches the Electron shell.
 
 For renderer development with Vite:
 
@@ -67,40 +293,19 @@ For renderer development with Vite:
 npm run dev
 ```
 
-## Model Runtime
-
-The demo defaults to `gemma4:e4b`, the second-smallest installed Gemma model on this machine at implementation time. That can be overridden:
+The demo defaults to `gemma4:e4b`. Override the model with:
 
 ```sh
 THE_WORLD_MODEL=gemma4:e2b npm start
 ```
 
-The Ollama adapter sends `think: false` for short game calls. This matters for local Gemma variants because otherwise the model can spend the output budget in a thinking channel before producing JSON.
+Expected startup log:
 
-On startup, the app:
-
-1. Creates the Electron window immediately.
-2. Registers the AI IPC bridge.
-3. Warms the selected local model in the background.
-4. Pre-generates cacheable ambient barks and overheard lines.
-5. Shows model/provider/cache status in the HUD.
-
-Ambient world text is intentionally cache-first at runtime. The SDK exposes `cacheOnly` / `refresh` generation options and a `preGenerate` IPC call so developers can mark recipes such as `npc.bark` and `npc.overhear` as pre-generated. That keeps walking around the map from triggering surprise Gemma calls.
-
-If you open the renderer directly in a browser, it shows a Gemma bridge error. That is intentional: playable conversations are not mocked, because this demo exists to prove the Electron/Gemma path.
-
-## Playing The Demo
-
-- Move with `WASD` or arrow keys.
-- You spawn near one of three towns: Rivergate, Mosswake, or Cindervale.
-- Use the top-right minimap to navigate towns, roads, woods, landmarks, and nearby NPCs.
-- Approach an NPC, then click a highlighted person or press `E`.
-- Some NPCs are in private groups. You can listen nearby, but interrupting them gets a refusal instead of joining their conversation.
-- Type natural language into the dialogue box.
-- Click `Goodbye` to let the NPC end the conversation.
-- Stay near NPCs to see paced overheard exchanges. Most ambient life is NPCs approaching each other for short conversations; occasional single-NPC lines behave like town announcements.
-- Open `Diagnostics` when needed for model, cache, fallback, raw output, CPU usage, GPU usage, GPU memory, machine memory, app memory, ambient flow, and a live trend graph. FPS stays visible in the top HUD.
-- Click `Record Perf` before playing a route to write a JSONL telemetry log under the app's user data directory.
+```txt
+The World: renderer loaded.
+The World: Gemma IPC bridge ready.
+The World: warmup ready (ollama gemma4:e4b)
+```
 
 ## Verification
 
@@ -110,50 +315,38 @@ npm test
 npm run build
 ```
 
-Useful live checks:
+The current Electron dependency is `42.0.0`. The upgrade removes noisy macOS native menu logging from older Electron versions and keeps the demo on the current stable Electron major.
 
-```sh
-npm start
-```
-
-Expected Electron startup log includes:
+## Repository Layout
 
 ```txt
-The World: renderer loaded.
-The World: Gemma IPC bridge ready.
-The World: warmup ready (ollama gemma4:e4b)
+packages/core
+  Runtime types, schemas, recipes, prompt compiler, cache, memory,
+  repair, mock provider, and tests.
+
+packages/ollama
+  Ollama provider, model discovery, warmup, structured JSON generation,
+  request cancellation, and tests.
+
+packages/electron
+  Main/preload IPC bridge, shared schema validation, request cancellation,
+  pregeneration bridge, and tests.
+
+apps/the-world
+  Electron shell, canvas renderer, procedural world, ambient director,
+  diagnostics, performance logging, and playable demo.
 ```
+
+## Roadmap
+
+- YAML authoring for NPCs, recipes, lore, and policies.
+- Lore retrieval with embeddings.
+- Tool wrappers for read-only game-state queries and validated proposed writes.
+- Prompt replay and schema failure inspection in devtools.
+- Save-file memory integration.
+- Better packaging with app icon, installer flow, and model setup UX.
+- Provider adapters beyond Ollama.
 
 ## Agent Continuity
 
 Long-term project direction is captured in `AGENTS.md` so future sessions keep the same north star: Gemma-powered game life, no fake playable AI fallback, typed game-safe outputs, and a bounded navigable world.
-
-## Current Scope
-
-Implemented now:
-
-- Procedural terrain, roads, trees, and generated NPCs.
-- A fixed large map with Rivergate, Mosswake, Cindervale, Hollow Pines, Mothwood, and Wolfmoon Wood.
-- Houses, sheds, and wayhouses clustered into towns and along roads.
-- Marked special landmarks: The Old Mill, The Abandoned Castle, The Sunken Chapel, and Black Bell Tower.
-- Minimap navigation, random town-adjacent spawn, invisible map walls, and player walking effects.
-- Player and NPC movement treats houses, landmarks, and map bounds as blockers while letting characters pass through people and trees to keep navigation fluid.
-- NPC wandering around local areas without walking through buildings.
-- NPC click-to-talk interaction with two-way text.
-- NPC mood/disposition session state, including Gemma-controlled refusal and conversation ending.
-- NPC-controlled conversation ending through `shouldEndConversation`.
-- Ambient stage management: no more than two visible ambient speakers, slower fade-in/fade-out bubbles, pair/topic cooldowns, rotating NPC meetups, rare announcements, overheard two-NPC exchanges, and private group conversations.
-- Local Ollama/Gemma structured generation.
-- Warmup API and startup warmup.
-- Schema validation, repair, and fallback.
-- Collapsible runtime diagnostics with live macOS GPU utilization, GPU memory allocation, unified memory capacity, process memory, and a trend graph.
-- FPS and CPU diagnostics plus optional performance logging for play-session analysis.
-- Mock provider for tests only; playable renderer fallback is deliberately disabled.
-
-Good next steps:
-
-- Add YAML authoring for NPCs, recipes, lore, and policies.
-- Add lore retrieval with embeddings.
-- Add tool calling for read-only game-state queries and proposed game events.
-- Add richer devtools with prompt replay and schema failure inspection.
-- Package the Electron app with a proper icon/name instead of running through dev Electron.
