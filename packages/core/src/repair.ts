@@ -3,6 +3,8 @@ const moods = new Set(['calm', 'curious', 'wary', 'busy', 'lonely', 'cheerful', 
 const animations = new Set(['idle', 'point', 'laugh', 'lookAway', 'shrug', 'wave', 'thinking']);
 const scopes = new Set(['npc', 'player', 'world', 'scene']);
 const safetyLevels = new Set(['info', 'warn', 'block']);
+const dangerLevels = new Set(['none', 'uneasy', 'threat', 'panic']);
+const actionTypes = new Set(['none', 'endConversation', 'callForHelp']);
 
 export function repairRecipeValue(recipeId: string, value: unknown): unknown {
   if (!isRecord(value)) {
@@ -13,6 +15,12 @@ export function repairRecipeValue(recipeId: string, value: unknown): unknown {
   }
   if (recipeId === 'npc.bark') {
     return repairBark(value);
+  }
+  if (recipeId === 'npc.dialogue.assessMood') {
+    return repairMoodAssessment(value);
+  }
+  if (recipeId === 'npc.dialogue.decideAction') {
+    return repairActionDecision(value);
   }
   if (recipeId === 'npc.overhear') {
     return repairOverhear(value);
@@ -59,6 +67,26 @@ function repairOverhear(value: Record<string, unknown>): Record<string, unknown>
   };
 }
 
+function repairMoodAssessment(value: Record<string, unknown>): Record<string, unknown> {
+  return {
+    mood: enumOr(value.mood, moods, moodFromDanger(value.dangerLevel)),
+    attitudeDelta: clampRange(typeof value.attitudeDelta === 'number' ? value.attitudeDelta : 0, -30, 30),
+    dangerLevel: enumOr(value.dangerLevel, dangerLevels, 'none'),
+    reason: stringOr(value.reason, 'No concrete danger identified.').slice(0, 220)
+  };
+}
+
+function repairActionDecision(value: Record<string, unknown>): Record<string, unknown> {
+  const type = enumOr(value.type, actionTypes, 'none');
+  return {
+    type,
+    reason: stringOr(value.reason, type === 'none' ? 'No action needed.' : 'NPC chooses to end the exchange.').slice(0, 220),
+    shouldEndConversation: typeof value.shouldEndConversation === 'boolean'
+      ? value.shouldEndConversation
+      : type !== 'none'
+  };
+}
+
 function repairEvents(value: unknown): unknown[] {
   if (!Array.isArray(value)) {
     return [];
@@ -75,6 +103,11 @@ function repairEvents(value: unknown): unknown[] {
       case 'npc.emotion':
         if (typeof event.npcId === 'string' && emotions.has(String(event.emotion))) {
           repaired.push({ type: 'npc.emotion', npcId: event.npcId, emotion: event.emotion });
+        }
+        break;
+      case 'npc.callForHelp':
+        if (typeof event.npcId === 'string' && typeof event.reason === 'string' && dangerLevels.has(String(event.dangerLevel))) {
+          repaired.push({ type: 'npc.callForHelp', npcId: event.npcId, reason: event.reason, dangerLevel: event.dangerLevel });
         }
         break;
       case 'quest.propose':
@@ -162,6 +195,13 @@ function moodFromEmotion(value: unknown): string {
   if (value === 'suspicious') return 'wary';
   if (value === 'curious') return 'curious';
   if (value === 'warm' || value === 'amused') return 'cheerful';
+  return 'calm';
+}
+
+function moodFromDanger(value: unknown): string {
+  if (value === 'panic') return 'afraid';
+  if (value === 'threat') return 'hostile';
+  if (value === 'uneasy') return 'wary';
   return 'calm';
 }
 

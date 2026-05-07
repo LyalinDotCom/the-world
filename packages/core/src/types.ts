@@ -159,6 +159,24 @@ export interface DialogueRequest {
   }>;
 }
 
+export type DialogueDangerLevel = 'none' | 'uneasy' | 'threat' | 'panic';
+export type DialogueActionType = 'none' | 'endConversation' | 'callForHelp';
+
+export interface DialogueMoodAssessment {
+  mood: NpcMood;
+  attitudeDelta: number;
+  dangerLevel: DialogueDangerLevel;
+  reason: string;
+  trace?: DebugTrace;
+}
+
+export interface DialogueActionDecision {
+  type: DialogueActionType;
+  reason: string;
+  shouldEndConversation: boolean;
+  trace?: DebugTrace;
+}
+
 export interface BarkRequest {
   scene: SceneContext;
   player?: PlayerContext;
@@ -183,6 +201,7 @@ export interface MemoryWrite {
 export type GameAIEvent =
   | { type: 'dialogue.say'; npcId: string; text: string }
   | { type: 'npc.emotion'; npcId: string; emotion: DialogueEmotion }
+  | { type: 'npc.callForHelp'; npcId: string; reason: string; dangerLevel: DialogueDangerLevel }
   | { type: 'quest.propose'; questId: string; reason: string }
   | { type: 'memory.write'; scope: MemoryScope; text: string; importance: number }
   | { type: 'ui.hint'; text: string }
@@ -220,6 +239,9 @@ export interface DialogueTurn {
   memoryWrites: MemoryWrite[];
   safetyFlags: SafetyFlag[];
   shouldEndConversation?: boolean;
+  assessment?: DialogueMoodAssessment;
+  action?: DialogueActionDecision;
+  analysisTraces?: DebugTrace[];
   trace?: DebugTrace;
 }
 
@@ -272,4 +294,5 @@ export interface NpcGenerationOptions {
   cacheOnly?: boolean;
   refresh?: boolean;
   writeMemory?: boolean;
+  assess?: boolean;
 }

@@ -238,9 +238,9 @@ button:disabled {
 .devtools {
   position: absolute;
   right: 16px;
-  top: 274px;
+  bottom: 16px;
   width: min(370px, calc(100vw - 32px));
-  max-height: calc(100vh - 292px);
+  max-height: calc(100vh - 112px);
   padding: 12px;
   border: 1px solid rgba(111, 143, 84, 0.38);
   border-radius: 8px;
@@ -248,9 +248,60 @@ button:disabled {
   box-shadow: 0 20px 70px rgba(0, 0, 0, 0.24);
   backdrop-filter: blur(10px);
   overflow: hidden;
+  pointer-events: auto;
+  transform-origin: right bottom;
+  transition: border-color 160ms ease, background 160ms ease, box-shadow 160ms ease;
 }
 
 .devtools.collapsed {
+  border-color: rgba(227, 189, 101, 0.24);
+  background: rgba(16, 19, 15, 0.72);
+  box-shadow: 0 14px 42px rgba(0, 0, 0, 0.2);
+}
+
+.devtools-chrome {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.devtools-title {
+  min-width: 0;
+}
+
+.devtools-title strong {
+  display: block;
+  color: #f4d36d;
+  font-size: 13px;
+  text-transform: uppercase;
+}
+
+.devtools-title span {
+  display: block;
+  margin-top: 2px;
+  color: #aebf9b;
+  font-size: 11px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.devtools-toggle {
+  min-height: 30px;
+  padding: 0 11px;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.devtools-body {
+  max-height: calc(100vh - 178px);
+  margin-top: 11px;
+  overflow: auto;
+  padding-right: 2px;
+}
+
+.devtools.collapsed .devtools-body {
   display: none;
 }
 
@@ -507,7 +558,10 @@ button:disabled {
   }
 
   .devtools {
-    display: none;
+    right: 10px;
+    bottom: 10px;
+    width: min(320px, calc(100vw - 20px));
+    max-height: calc(100vh - 20px);
   }
 
   .minimap-panel {

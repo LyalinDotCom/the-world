@@ -59,6 +59,12 @@ export const GameAIEventSchema = z.discriminatedUnion('type', [
     emotion: DialogueEmotionSchema
   }),
   z.object({
+    type: z.literal('npc.callForHelp'),
+    npcId: z.string(),
+    reason: z.string(),
+    dangerLevel: z.enum(['none', 'uneasy', 'threat', 'panic'])
+  }),
+  z.object({
     type: z.literal('quest.propose'),
     questId: z.string(),
     reason: z.string()
@@ -78,6 +84,19 @@ export const GameAIEventSchema = z.discriminatedUnion('type', [
     message: z.string()
   })
 ]);
+
+export const DialogueMoodAssessmentSchema = z.object({
+  mood: NpcMoodSchema,
+  attitudeDelta: z.number().min(-30).max(30),
+  dangerLevel: z.enum(['none', 'uneasy', 'threat', 'panic']),
+  reason: z.string().min(1).max(220)
+});
+
+export const DialogueActionDecisionSchema = z.object({
+  type: z.enum(['none', 'endConversation', 'callForHelp']),
+  reason: z.string().min(1).max(220),
+  shouldEndConversation: z.boolean()
+});
 
 export const DialogueTurnSchema = z.object({
   text: z.string().min(1).max(420),
@@ -111,6 +130,8 @@ export const OverheardExchangeSchema = z.object({
 const moodEnum = ['calm', 'curious', 'wary', 'busy', 'lonely', 'cheerful', 'afraid', 'angry', 'offended', 'hostile'];
 const emotionEnum = ['neutral', 'warm', 'angry', 'afraid', 'suspicious', 'curious', 'amused', 'sad'];
 const animationEnum = ['idle', 'point', 'laugh', 'lookAway', 'shrug', 'wave', 'thinking'];
+const dangerEnum = ['none', 'uneasy', 'threat', 'panic'];
+const actionEnum = ['none', 'endConversation', 'callForHelp'];
 
 export const dialogueTurnJsonSchema = {
   type: 'object',
@@ -170,6 +191,29 @@ export const barkTurnJsonSchema = {
       type: 'array',
       items: { type: 'object' }
     }
+  }
+};
+
+export const dialogueMoodAssessmentJsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['mood', 'attitudeDelta', 'dangerLevel', 'reason'],
+  properties: {
+    mood: { type: 'string', enum: moodEnum },
+    attitudeDelta: { type: 'number', minimum: -30, maximum: 30 },
+    dangerLevel: { type: 'string', enum: dangerEnum },
+    reason: { type: 'string', minLength: 1, maxLength: 220 }
+  }
+};
+
+export const dialogueActionDecisionJsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['type', 'reason', 'shouldEndConversation'],
+  properties: {
+    type: { type: 'string', enum: actionEnum },
+    reason: { type: 'string', minLength: 1, maxLength: 220 },
+    shouldEndConversation: { type: 'boolean' }
   }
 };
 

@@ -76,19 +76,19 @@ export function registerGameAIIpc(ipcMain: IpcMain, ai: GameAI, options: Registe
       };
     },
     dialogue: async (payload) => {
-      const typed = payload as GameAIDialoguePayload;
+      const typed = validateDialoguePayload(payload);
       return await ai.npc(typed.npc).respond(typed.request, typed.options);
     },
     bark: async (payload) => {
-      const typed = payload as GameAIBarkPayload;
+      const typed = validateBarkPayload(payload);
       return await ai.npc(typed.npc).bark(typed.request, typed.options);
     },
     overhear: async (payload) => {
-      const typed = payload as GameAIOverhearPayload;
+      const typed = validateOverhearPayload(payload);
       return await ai.npc(typed.npc).overhear(typed.request, typed.options);
     },
     preGenerate: async (payload) => {
-      const typed = payload as GameAIPreGeneratePayload;
+      const typed = validatePreGeneratePayload(payload);
       const startedAt = Date.now();
       const jobs = typed.jobs.slice();
       const maxConcurrency = Math.max(1, Math.min(3, typed.maxConcurrency ?? 1));
@@ -161,4 +161,136 @@ export function createGameAIPreloadApi(ipcRenderer: IpcRenderer, channel = defau
 
 export function exposeGameAIBridge(contextBridge: ContextBridge, ipcRenderer: IpcRenderer, key = 'gameAI', channel = defaultGameAiIpcChannel): void {
   contextBridge.exposeInMainWorld(key, createGameAIPreloadApi(ipcRenderer, channel));
+}
+
+function validateDialoguePayload(payload: unknown): GameAIDialoguePayload {
+  const value = requireObject(payload, 'dialogue payload');
+  validateNpcDefinition(value.npc, 'dialogue payload.npc');
+  validateDialogueRequest(value.request, 'dialogue payload.request');
+  validateGenerationOptions(value.options, 'dialogue payload.options');
+  return value as unknown as GameAIDialoguePayload;
+}
+
+function validateBarkPayload(payload: unknown): GameAIBarkPayload {
+  const value = requireObject(payload, 'bark payload');
+  validateNpcDefinition(value.npc, 'bark payload.npc');
+  validateSceneRequest(value.request, 'bark payload.request');
+  validateGenerationOptions(value.options, 'bark payload.options');
+  return value as unknown as GameAIBarkPayload;
+}
+
+function validateOverhearPayload(payload: unknown): GameAIOverhearPayload {
+  const value = requireObject(payload, 'overhear payload');
+  validateNpcDefinition(value.npc, 'overhear payload.npc');
+  const request = requireObject(value.request, 'overhear payload.request');
+  validateNpcDefinition(request.otherNpc, 'overhear payload.request.otherNpc');
+  validateSceneRequest(request, 'overhear payload.request');
+  if (request.topic !== undefined) requireString(request.topic, 'overhear payload.request.topic');
+  validateGenerationOptions(value.options, 'overhear payload.options');
+  return value as unknown as GameAIOverhearPayload;
+}
+
+function validatePreGeneratePayload(payload: unknown): GameAIPreGeneratePayload {
+  const value = requireObject(payload, 'preGenerate payload');
+  if (!Array.isArray(value.jobs)) {
+    throw new TypeError('preGenerate payload.jobs must be an array.');
+  }
+  if (value.jobs.length > 80) {
+    throw new TypeError('preGenerate payload.jobs must contain 80 jobs or fewer.');
+  }
+  for (const [index, jobValue] of value.jobs.entries()) {
+    const job = requireObject(jobValue, `preGenerate payload.jobs[${index}]`);
+    if (job.type === 'dialogue') validateDialoguePayload(job);
+    else if (job.type === 'bark') validateBarkPayload(job);
+    else if (job.type === 'overhear') validateOverhearPayload(job);
+    else throw new TypeError(`preGenerate payload.jobs[${index}].type must be dialogue, bark, or overhear.`);
+  }
+  const maxConcurrency = value.maxConcurrency;
+  if (maxConcurrency !== undefined && (typeof maxConcurrency !== 'number' || !Number.isInteger(maxConcurrency) || maxConcurrency < 1 || maxConcurrency > 3)) {
+    throw new TypeError('preGenerate payload.maxConcurrency must be an integer from 1 to 3.');
+  }
+  return value as unknown as GameAIPreGeneratePayload;
+}
+
+function validateNpcDefinition(value: unknown, label: string): void {
+  const npc = requireObject(value, label);
+  requireString(npc.id, `${label}.id`);
+  const persona = requireObject(npc.persona, `${label}.persona`);
+  requireString(persona.name, `${label}.persona.name`);
+  requireString(persona.role, `${label}.persona.role`);
+  validateStringArray(persona.traits, `${label}.persona.traits`);
+  validateStringArray(persona.goals, `${label}.persona.goals`);
+  validateStringArray(persona.secrets, `${label}.persona.secrets`);
+  validateStringArray(persona.knows, `${label}.persona.knows`);
+  validateStringArray(persona.doesNotKnow, `${label}.persona.doesNotKnow`);
+  validateStringArray(persona.rules, `${label}.persona.rules`);
+}
+
+function validateDialogueRequest(value: unknown, label: string): void {
+  const request = validateSceneRequest(value, label);
+  const playerText = requireString(request.playerText, `${label}.playerText`);
+  if (playerText.length > 1_000) {
+    throw new TypeError(`${label}.playerText must be 1,000 characters or fewer.`);
+  }
+  if (request.recentDialogue !== undefined) {
+    if (!Array.isArray(request.recentDialogue)) {
+      throw new TypeError(`${label}.recentDialogue must be an array.`);
+    }
+    if (request.recentDialogue.length > 24) {
+      throw new TypeError(`${label}.recentDialogue must contain 24 entries or fewer.`);
+    }
+    for (const [index, lineValue] of request.recentDialogue.entries()) {
+      const line = requireObject(lineValue, `${label}.recentDialogue[${index}]`);
+      requireString(line.speaker, `${label}.recentDialogue[${index}].speaker`);
+      requireString(line.text, `${label}.recentDialogue[${index}].text`);
+    }
+  }
+}
+
+function validateSceneRequest(value: unknown, label: string): Record<string, unknown> {
+  const request = requireObject(value, label);
+  const scene = requireObject(request.scene, `${label}.scene`);
+  requireString(scene.location, `${label}.scene.location`);
+  validateStringArray(scene.nearbyCharacters, `${label}.scene.nearbyCharacters`);
+  validateStringArray(scene.visibleLandmarks, `${label}.scene.visibleLandmarks`);
+  return request;
+}
+
+function validateGenerationOptions(value: unknown, label: string): void {
+  if (value === undefined) return;
+  const options = requireObject(value, label);
+  const timeoutMs = options.timeoutMs;
+  if (timeoutMs !== undefined && (typeof timeoutMs !== 'number' || !Number.isFinite(timeoutMs) || timeoutMs < 1 || timeoutMs > 120_000)) {
+    throw new TypeError(`${label}.timeoutMs must be between 1 and 120000.`);
+  }
+  if (options.cacheKey !== undefined) requireString(options.cacheKey, `${label}.cacheKey`);
+  for (const key of ['cacheOnly', 'refresh', 'writeMemory', 'assess']) {
+    if (options[key] !== undefined && typeof options[key] !== 'boolean') {
+      throw new TypeError(`${label}.${key} must be a boolean.`);
+    }
+  }
+}
+
+function validateStringArray(value: unknown, label: string): void {
+  if (value === undefined) return;
+  if (!Array.isArray(value)) {
+    throw new TypeError(`${label} must be an array.`);
+  }
+  for (const [index, item] of value.entries()) {
+    requireString(item, `${label}[${index}]`);
+  }
+}
+
+function requireObject(value: unknown, label: string): Record<string, unknown> {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    throw new TypeError(`${label} must be an object.`);
+  }
+  return value as Record<string, unknown>;
+}
+
+function requireString(value: unknown, label: string): string {
+  if (typeof value !== 'string' || value.length === 0) {
+    throw new TypeError(`${label} must be a non-empty string.`);
+  }
+  return value;
 }

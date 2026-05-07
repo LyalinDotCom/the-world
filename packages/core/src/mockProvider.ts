@@ -25,7 +25,11 @@ export class MockGameAIProvider implements GameAIProvider {
       ? this.overhear(request)
       : recipeId.includes('bark')
         ? this.bark(request)
-        : this.dialogue(request);
+        : recipeId.includes('assessMood')
+          ? this.assessMood(request)
+          : recipeId.includes('decideAction')
+            ? this.decideAction(request)
+            : this.dialogue(request);
 
     return {
       text,
@@ -94,6 +98,30 @@ export class MockGameAIProvider implements GameAIProvider {
     ];
     const text = options[Math.abs(hash(prompt)) % options.length]!;
     return JSON.stringify({ text, emotion: 'neutral', safetyFlags: [] });
+  }
+
+  private assessMood(request: GenerateRequest): string {
+    const prompt = request.messages.map((message) => message.content).join('\n');
+    const playerText = capture(prompt, /Player message: ([\s\S]*?)\nNPC reply:/)?.trim() ?? '';
+    const threat = /kill|hurt|attack|rob|burn|weapon|stab|shoot|cut you|follow you home/i.test(playerText);
+    const uneasy = /scary|afraid|watching|where do you live|alone|idiot|stupid/i.test(playerText);
+    return JSON.stringify({
+      mood: threat ? 'hostile' : uneasy ? 'wary' : 'calm',
+      attitudeDelta: threat ? -25 : uneasy ? -6 : 0,
+      dangerLevel: threat ? 'threat' : uneasy ? 'uneasy' : 'none',
+      reason: threat ? 'The player made a credible threat.' : uneasy ? 'The player made the NPC wary.' : 'No danger in the exchange.'
+    });
+  }
+
+  private decideAction(request: GenerateRequest): string {
+    const prompt = request.messages.map((message) => message.content).join('\n');
+    const threat = /"dangerLevel":"threat"|"dangerLevel":"panic"|credible threat/i.test(prompt);
+    const uneasy = /"dangerLevel":"uneasy"|"mood":"hostile"|"mood":"offended"|"mood":"angry"/i.test(prompt);
+    return JSON.stringify({
+      type: threat ? 'callForHelp' : uneasy ? 'endConversation' : 'none',
+      reason: threat ? 'The player made a credible threat.' : uneasy ? 'The NPC no longer wants to continue.' : 'No action needed.',
+      shouldEndConversation: threat || uneasy
+    });
   }
 
   private overhear(request: GenerateRequest): string {

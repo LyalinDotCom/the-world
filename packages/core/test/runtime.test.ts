@@ -133,4 +133,141 @@ describe('GameAI runtime', () => {
     expect(hit.trace?.cache).toBe('hit');
     expect(generateCount).toBe(1);
   });
+
+  it('compiles dialogue prompts with concrete-answer guidance', async () => {
+    let prompt = '';
+    const provider: GameAIProvider = {
+      id: 'prompt-capture',
+      async generate(request) {
+        prompt = request.messages.map((message) => message.content).join('\n');
+        return {
+          text: JSON.stringify({
+            text: 'The Old Mill has turned three nights without wind. Stay on the main road after dusk.',
+            emotion: 'suspicious',
+            mood: 'wary',
+            attitudeDelta: 2,
+            willTalkAgain: true,
+            events: [],
+            memoryWrites: [],
+            safetyFlags: []
+          })
+        };
+      }
+    };
+    const ai = createGameAI({
+      provider,
+      world: { id: 'test-world' },
+      runtime: { cache: 'none' }
+    });
+    const npc = ai.npc({
+      id: 'npc.wayfinder.lysa',
+      persona: { name: 'Lysa', role: 'wayfinder' }
+    });
+
+    await npc.respond({
+      playerText: 'What is going on in this town?',
+      scene: { location: 'Cindervale' }
+    });
+
+    expect(prompt).toContain('Answer the player directly before adding color');
+    expect(prompt).toContain('Every non-greeting reply should include at least one concrete detail');
+    expect(prompt).toContain('If the player asks what is going on');
+    expect(prompt).toContain('If the player asks the NPCs age');
+  });
+
+  it('can run separate assessment and action passes for dangerous dialogue', async () => {
+    const ai = createGameAI({
+      provider: new MockGameAIProvider(),
+      world: { id: 'test-world' },
+      runtime: { mode: 'mock', cache: 'none' }
+    });
+    const npc = ai.npc({
+      id: 'npc.guard.elda',
+      persona: { name: 'Elda', role: 'road guard', mood: 'wary' }
+    });
+
+    const turn = await npc.respond({
+      playerText: 'I will burn this place down and hurt anyone who follows.',
+      scene: { location: 'Rivergate' }
+    }, {
+      assess: true
+    });
+
+    expect(turn.assessment?.dangerLevel).toBe('threat');
+    expect(turn.action?.type).toBe('callForHelp');
+    expect(turn.shouldEndConversation).toBe(true);
+    expect(turn.events).toContainEqual({
+      type: 'npc.callForHelp',
+      npcId: 'npc.guard.elda',
+      reason: 'The player made a credible threat.',
+      dangerLevel: 'threat'
+    });
+    expect(turn.analysisTraces?.map((trace) => trace.recipeId)).toEqual([
+      'npc.dialogue.assessMood',
+      'npc.dialogue.decideAction'
+    ]);
+  });
+
+  it('keeps assessment traces out of follow-up action prompts', async () => {
+    let actionPrompt = '';
+    const provider: GameAIProvider = {
+      id: 'prompt-capture',
+      async generate(request) {
+        const recipeId = request.metadata?.recipeId;
+        if (recipeId === 'npc.dialogue.assessMood') {
+          return {
+            text: JSON.stringify({
+              mood: 'wary',
+              attitudeDelta: -2,
+              dangerLevel: 'uneasy',
+              reason: 'The player sounded suspicious.'
+            })
+          };
+        }
+        if (recipeId === 'npc.dialogue.decideAction') {
+          actionPrompt = request.messages.map((message) => message.content).join('\n');
+          return {
+            text: JSON.stringify({
+              type: 'none',
+              reason: 'Suspicious but not dangerous.',
+              shouldEndConversation: false
+            })
+          };
+        }
+        return {
+          text: JSON.stringify({
+            text: 'Keep your voice down and stay by the lamps.',
+            emotion: 'suspicious',
+            mood: 'wary',
+            attitudeDelta: -2,
+            willTalkAgain: true,
+            events: [],
+            memoryWrites: [],
+            safetyFlags: []
+          })
+        };
+      }
+    };
+    const ai = createGameAI({
+      provider,
+      world: { id: 'test-world' },
+      runtime: { cache: 'none' }
+    });
+    const npc = ai.npc({
+      id: 'npc.guard.elda',
+      persona: { name: 'Elda', role: 'road guard', mood: 'wary' }
+    });
+
+    await npc.respond({
+      playerText: 'Why are the lamps watched?',
+      scene: { location: 'Rivergate' }
+    }, {
+      assess: true
+    });
+
+    expect(actionPrompt).toContain('Assessment: {"mood":"wary","attitudeDelta":-2,"dangerLevel":"uneasy","reason":"The player sounded suspicious."}');
+    expect(actionPrompt).not.toContain('"trace"');
+    expect(actionPrompt).not.toContain('"rawText"');
+    expect(actionPrompt).not.toContain('npc.dialogue.assessMood');
+  });
 });

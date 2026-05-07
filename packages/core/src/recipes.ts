@@ -1,10 +1,23 @@
-import type { BarkRequest, BarkTurn, DialogueRequest, DialogueTurn, NpcDefinition, OverheardExchange, OverhearRequest, RecipeDefinition } from './types.js';
-import { BarkTurnSchema, DialogueTurnSchema, OverheardExchangeSchema, barkTurnJsonSchema, dialogueTurnJsonSchema, overheardExchangeJsonSchema } from './schemas.js';
-import { compileBarkPrompt, compileDialoguePrompt, compileOverhearPrompt } from './promptCompiler.js';
+import type { BarkRequest, BarkTurn, DialogueActionDecision, DialogueMoodAssessment, DialogueRequest, DialogueTurn, NpcDefinition, OverheardExchange, OverhearRequest, RecipeDefinition } from './types.js';
+import { BarkTurnSchema, DialogueActionDecisionSchema, DialogueMoodAssessmentSchema, DialogueTurnSchema, OverheardExchangeSchema, barkTurnJsonSchema, dialogueActionDecisionJsonSchema, dialogueMoodAssessmentJsonSchema, dialogueTurnJsonSchema, overheardExchangeJsonSchema } from './schemas.js';
+import { compileBarkPrompt, compileDialogueActionPrompt, compileDialogueMoodAssessmentPrompt, compileDialoguePrompt, compileOverhearPrompt } from './promptCompiler.js';
 
 export interface NpcDialogueRecipeInput {
   npc: NpcDefinition;
   request: DialogueRequest;
+}
+
+export interface NpcDialogueMoodAssessmentRecipeInput {
+  npc: NpcDefinition;
+  request: DialogueRequest;
+  reply: DialogueTurn;
+}
+
+export interface NpcDialogueActionRecipeInput {
+  npc: NpcDefinition;
+  request: DialogueRequest;
+  reply: DialogueTurn;
+  assessment: DialogueMoodAssessment;
 }
 
 export interface NpcBarkRecipeInput {
@@ -77,6 +90,46 @@ export const npcBarkRecipe: RecipeDefinition<NpcBarkRecipeInput, BarkTurn> = {
   }
 };
 
+export const npcDialogueMoodAssessmentRecipe: RecipeDefinition<NpcDialogueMoodAssessmentRecipeInput, DialogueMoodAssessment> = {
+  id: 'npc.dialogue.assessMood',
+  description: 'Privately assess NPC mood and danger after a dialogue turn.',
+  schema: DialogueMoodAssessmentSchema,
+  jsonSchema: dialogueMoodAssessmentJsonSchema,
+  temperature: 0,
+  maxTokens: 90,
+  compile(input, ctx) {
+    return compileDialogueMoodAssessmentPrompt(input.npc, input.request, input.reply, ctx);
+  },
+  fallback(input, _ctx, reason) {
+    return {
+      mood: input.reply.mood,
+      attitudeDelta: input.reply.attitudeDelta,
+      dangerLevel: /kill|hurt|attack|rob|burn|weapon|stab|shoot/i.test(input.request.playerText) ? 'threat' : 'none',
+      reason: `Fallback mood assessment used: ${reason}`.slice(0, 220)
+    };
+  }
+};
+
+export const npcDialogueActionRecipe: RecipeDefinition<NpcDialogueActionRecipeInput, DialogueActionDecision> = {
+  id: 'npc.dialogue.decideAction',
+  description: 'Privately decide whether an NPC should end conversation or call for help.',
+  schema: DialogueActionDecisionSchema,
+  jsonSchema: dialogueActionDecisionJsonSchema,
+  temperature: 0,
+  maxTokens: 80,
+  compile(input, ctx) {
+    return compileDialogueActionPrompt(input.npc, input.request, input.reply, input.assessment, ctx);
+  },
+  fallback(input, _ctx, reason) {
+    const shouldCall = input.assessment.dangerLevel === 'threat' || input.assessment.dangerLevel === 'panic';
+    return {
+      type: shouldCall ? 'callForHelp' : input.reply.shouldEndConversation ? 'endConversation' : 'none',
+      reason: shouldCall ? input.assessment.reason : `Fallback action decision used: ${reason}`.slice(0, 220),
+      shouldEndConversation: shouldCall || Boolean(input.reply.shouldEndConversation)
+    };
+  }
+};
+
 export const npcOverhearRecipe: RecipeDefinition<NpcOverhearRecipeInput, OverheardExchange> = {
   id: 'npc.overhear',
   description: 'Generate a short NPC-to-NPC overheard exchange.',
@@ -110,6 +163,8 @@ export const npcOverhearRecipe: RecipeDefinition<NpcOverhearRecipeInput, Overhea
 
 export const defaultRecipes = [
   npcDialogueRecipe,
+  npcDialogueMoodAssessmentRecipe,
+  npcDialogueActionRecipe,
   npcBarkRecipe,
   npcOverhearRecipe
 ] as const;

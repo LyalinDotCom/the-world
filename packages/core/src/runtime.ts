@@ -4,8 +4,8 @@ import { parseModelJson } from './json.js';
 import { MemoryStore } from './memory.js';
 import { MockGameAIProvider } from './mockProvider.js';
 import { repairRecipeValue } from './repair.js';
-import { defaultRecipes, npcBarkRecipe, npcDialogueRecipe, npcOverhearRecipe, type NpcBarkRecipeInput, type NpcDialogueRecipeInput, type NpcOverhearRecipeInput } from './recipes.js';
-import type { BarkRequest, BarkTurn, DebugTrace, DialogueRequest, DialogueTurn, GameAIConfig, GameAIProvider, NpcDefinition, NpcGenerationOptions, OverheardExchange, OverhearRequest, PromptCompileContext, RecipeDefinition, RunRecipeOptions } from './types.js';
+import { defaultRecipes, npcBarkRecipe, npcDialogueActionRecipe, npcDialogueMoodAssessmentRecipe, npcDialogueRecipe, npcOverhearRecipe, type NpcBarkRecipeInput, type NpcDialogueActionRecipeInput, type NpcDialogueMoodAssessmentRecipeInput, type NpcDialogueRecipeInput, type NpcOverhearRecipeInput } from './recipes.js';
+import type { BarkRequest, BarkTurn, DebugTrace, DialogueActionDecision, DialogueMoodAssessment, DialogueRequest, DialogueTurn, GameAIConfig, GameAIProvider, NpcDefinition, NpcGenerationOptions, OverheardExchange, OverhearRequest, PromptCompileContext, RecipeDefinition, RunRecipeOptions } from './types.js';
 
 type AnyRecipe = RecipeDefinition<unknown, unknown>;
 
@@ -158,19 +158,23 @@ export class GameAINpc {
       timeoutMs: options.timeoutMs ?? 20_000
     });
 
-    if (options.writeMemory !== false && !result.trace?.fallback) {
+    const assessed = options.assess && !result.trace?.fallback
+      ? await this.assessDialogueTurn(request, result, options)
+      : result;
+
+    if (options.writeMemory !== false && !assessed.trace?.fallback) {
       this.ai.memory.write({
         scope: 'npc',
         id: this.definition.id,
         text: `Player said: ${request.playerText.slice(0, 180)}`,
         importance: 0.35
       });
-      this.ai.memory.writeMany(result.memoryWrites.map((write) => ({
+      this.ai.memory.writeMany(assessed.memoryWrites.map((write) => ({
         ...write,
         id: write.id ?? this.definition.id
       })));
     }
-    return result;
+    return assessed;
   }
 
   async bark(request: BarkRequest, options: NpcGenerationOptions = {}): Promise<BarkTurn> {
@@ -193,6 +197,49 @@ export class GameAINpc {
       cacheMode: cacheModeFromOptions(options),
       timeoutMs: options.timeoutMs ?? 12_000
     });
+  }
+
+  private async assessDialogueTurn(request: DialogueRequest, reply: DialogueTurn, options: NpcGenerationOptions): Promise<DialogueTurn> {
+    const assessment = await this.ai.run<NpcDialogueMoodAssessmentRecipeInput, DialogueMoodAssessment>(npcDialogueMoodAssessmentRecipe.id, {
+      npc: this.definition,
+      request,
+      reply
+    }, {
+      bypassCache: true,
+      timeoutMs: Math.min(options.timeoutMs ?? 12_000, 12_000)
+    });
+    const action = await this.ai.run<NpcDialogueActionRecipeInput, DialogueActionDecision>(npcDialogueActionRecipe.id, {
+      npc: this.definition,
+      request,
+      reply,
+      assessment
+    }, {
+      bypassCache: true,
+      timeoutMs: Math.min(options.timeoutMs ?? 10_000, 10_000)
+    });
+    const analysisTraces = [assessment.trace, action.trace].filter((trace): trace is DebugTrace => Boolean(trace));
+    const shouldEndConversation = Boolean(reply.shouldEndConversation || action.shouldEndConversation || action.type === 'callForHelp');
+    const events = action.type === 'callForHelp'
+      ? [
+        ...reply.events,
+        {
+          type: 'npc.callForHelp' as const,
+          npcId: this.definition.id,
+          reason: action.reason,
+          dangerLevel: assessment.dangerLevel
+        }
+      ]
+      : reply.events;
+    return {
+      ...reply,
+      mood: assessment.mood,
+      attitudeDelta: assessment.attitudeDelta,
+      shouldEndConversation,
+      assessment,
+      action,
+      analysisTraces,
+      events
+    };
   }
 }
 

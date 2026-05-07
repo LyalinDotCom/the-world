@@ -82,7 +82,7 @@ On startup, the app:
 1. Creates the Electron window immediately.
 2. Registers the AI IPC bridge.
 3. Warms the selected local model in the background.
-4. Pre-generates cacheable ambient barks, bump reactions, and overheard lines.
+4. Pre-generates cacheable ambient barks and overheard lines.
 5. Shows model/provider/cache status in the HUD.
 
 Ambient world text is intentionally cache-first at runtime. The SDK exposes `cacheOnly` / `refresh` generation options and a `preGenerate` IPC call so developers can mark recipes such as `npc.bark` and `npc.overhear` as pre-generated. That keeps walking around the map from triggering surprise Gemma calls.
@@ -137,8 +137,8 @@ Implemented now:
 - Houses, sheds, and wayhouses clustered into towns and along roads.
 - Marked special landmarks: The Old Mill, The Abandoned Castle, The Sunken Chapel, and Black Bell Tower.
 - Minimap navigation, random town-adjacent spawn, invisible map walls, and player walking effects.
-- Player and NPC collision against people, trees, houses, landmarks, and map bounds.
-- NPC wandering around local areas without walking through major blockers.
+- Player and NPC movement treats houses, landmarks, and map bounds as blockers while letting characters pass through people and trees to keep navigation fluid.
+- NPC wandering around local areas without walking through buildings.
 - NPC click-to-talk interaction with two-way text.
 - NPC mood/disposition session state, including Gemma-controlled refusal and conversation ending.
 - NPC-controlled conversation ending through `shouldEndConversation`.

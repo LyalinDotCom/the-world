@@ -25,6 +25,50 @@ The long-term goal is to prove that local Gemma-class models can bring a procedu
 - Do not let the model grant rewards, mutate inventory, complete quests, or invent major canon facts directly.
 - Movement-adjacent ambient life should be cache-first or pre-generated. Do not let walking around spam local Gemma calls.
 
+## Architecture Guardrails
+
+This repo should demonstrate an SDK-backed game architecture, not a pile of demo code. When adding features, keep game systems, SDK runtime logic, rendering, and Electron plumbing in separate modules.
+
+- `packages/core` owns game-native AI concepts: recipes, schemas, prompt compilation, validation, repair, memory, caching, mood/action analysis, and provider-neutral runtime behavior.
+- `packages/ollama` owns only the Ollama adapter: request formatting, health checks, model options, structured output calls, streaming, embeddings, and model warmup.
+- `packages/electron` owns the safe IPC bridge shape. All renderer-to-main payloads should be runtime validated before they reach `GameAI`.
+- `apps/the-world/src/main` owns app lifecycle, windows, diagnostics sampling, performance logging, and the concrete SDK runtime wiring for this demo.
+- `apps/the-world/src/renderer` owns canvas input, rendering, camera, HUD, and game presentation. It should call narrow controllers/systems rather than embedding every rule in `main.ts`.
+
+Use these file-size tripwires:
+
+- Around 500 lines: ask whether the file is taking on a second responsibility.
+- Around 800 lines: extract before adding more feature work unless the file is intentionally generated or data-only.
+- Over 1,000 lines: treat as architecture debt. Do not add major logic there without also extracting a module.
+
+Preferred renderer modules:
+
+- `gameLoop.ts`: fixed update/render scheduling, frame timing, pause state.
+- `collision.ts`: map bounds and building blockers. Keep it pure and unit-tested.
+- `ambientDirector.ts`: NPC meetups, announcements, ambient cooldowns, visible-speaker caps, and cache-first flow control.
+- `dialogueController.ts`: conversation lifecycle, walk-away close behavior, thinking state, mood/action results, and session refusal state.
+- `diagnosticsHud.ts`: FPS, model name, runtime status, CPU/GPU/memory panels, tab state, expand/collapse state.
+- `worldView.ts`: camera transforms, minimap projection, map markers, and visible-world calculations.
+- `rendering/*`: drawing houses, landmarks, roads, NPCs, bubbles, constables, HUD overlays, and debug layers.
+
+Preferred Electron main modules:
+
+- `window.ts`: BrowserWindow creation, dev/prod loading, app menu behavior.
+- `runtime.ts`: concrete `createGameAI` config, model warmup, lore, recipes, and IPC handler registration for AI calls.
+- `diagnostics.ts`: CPU, GPU, memory, model status, and machine capability sampling.
+- `perfLog.ts`: optional session telemetry logging for FPS, CPU/GPU, interactions, cache hits, and model calls.
+
+Feature placement rules:
+
+- If a behavior is part of the SDK promise, implement it in `packages/core` first and let the demo opt into it.
+- If a behavior is only demo staging, put it in `apps/the-world` and keep it out of SDK packages.
+- If logic can be tested without canvas, Electron, or Ollama, extract it and add a unit test.
+- When adding or changing schemas, update both Zod schemas and JSON schemas, then add or update parity tests.
+- When adding IPC methods, validate payloads at runtime in `packages/electron`; do not cast untrusted renderer payloads directly into core types.
+- When adding model calls, make the cache/pre-generation behavior explicit. Ambient or movement-adjacent systems must not issue unbounded realtime calls.
+- Keep model analysis tasks small and separate for weaker local models: one call for the creative reply, one for mood/state assessment, and one for action decisions when needed.
+- Do not hide broken AI behind renderer-only fallback dialogue in the playable demo. Broken model/runtime paths should be visible in diagnostics.
+
 ## Current Demo Priorities
 
 1. Make conversations genuinely responsive to recent dialogue.
