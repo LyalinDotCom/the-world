@@ -1,29 +1,53 @@
 import { app, BrowserWindow, ipcMain } from 'electron';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
-import { createGameAI, MockGameAIProvider, type GameAIProvider } from '@game-llm/core';
+import { appendFile, mkdir } from 'node:fs/promises';
+import { createGameAI } from '@game-llm/core';
 import { registerGameAIIpc } from '@game-llm/electron';
 import { ollamaProvider } from '@game-llm/ollama';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 let cleanupIpc: (() => void) | undefined;
+let mainWindow: BrowserWindow | undefined;
 
-async function createProvider(): Promise<GameAIProvider> {
-  const localProvider = ollamaProvider({
+app.setName('The World');
+
+function formatUnknownError(error: unknown): string {
+  return error instanceof Error
+    ? error.stack ?? error.message
+    : String(error);
+}
+
+async function logMainProcessError(kind: string, error: unknown): Promise<void> {
+  const logDirectory = path.join(app.getPath('userData'), 'logs');
+  await mkdir(logDirectory, { recursive: true });
+  await appendFile(
+    path.join(logDirectory, 'main-process-errors.log'),
+    `[${new Date().toISOString()}] ${kind}\n${formatUnknownError(error)}\n\n`,
+    'utf-8'
+  );
+}
+
+function reportMainProcessError(kind: string, error: unknown): void {
+  console.error(`[the-world] ${kind}:`, error);
+  void logMainProcessError(kind, error).catch((logError) => {
+    console.error('[the-world] Failed to write main-process error log:', logError);
+  });
+}
+
+process.on('uncaughtException', (error) => {
+  reportMainProcessError('uncaughtException', error);
+});
+
+process.on('unhandledRejection', (reason) => {
+  reportMainProcessError('unhandledRejection', reason);
+});
+
+function createRuntime(): void {
+  const provider = ollamaProvider({
     quality: 'balanced',
     timeoutMs: Number(process.env.THE_WORLD_TIMEOUT_MS ?? 24_000)
   });
-  const health = await localProvider.health?.();
-  if (health?.ok) {
-    return localProvider;
-  }
-
-  console.warn(`The World: Ollama unavailable, using mock provider. ${health?.message ?? ''}`);
-  return new MockGameAIProvider();
-}
-
-async function createRuntime(): Promise<void> {
-  const provider = await createProvider();
   const ai = createGameAI({
     provider,
     world: {
@@ -60,13 +84,13 @@ async function createRuntime(): Promise<void> {
   }).then((health) => {
     console.log(`The World: warmup ${health.ok ? 'ready' : 'degraded'} (${health.provider}${health.model ? ` ${health.model}` : ''})`);
   }).catch((error) => {
-    console.warn(`The World: warmup failed: ${error instanceof Error ? error.message : String(error)}`);
+    reportMainProcessError('warmup failed', error);
   });
 }
 
 function createWindow(): void {
   const preloadPath = path.join(__dirname, '../preload/preload.js');
-  const window = new BrowserWindow({
+  mainWindow = new BrowserWindow({
     width: 1440,
     height: 960,
     minWidth: 980,
@@ -80,14 +104,38 @@ function createWindow(): void {
     }
   });
 
+  mainWindow.webContents.on('did-fail-load', (_event, errorCode, errorDescription, validatedURL, isMainFrame) => {
+    reportMainProcessError('renderer did-fail-load', {
+      errorCode,
+      errorDescription,
+      validatedURL,
+      isMainFrame
+    });
+  });
+  mainWindow.webContents.on('did-finish-load', () => {
+    console.log('The World: renderer loaded.');
+  });
+  mainWindow.webContents.on('render-process-gone', (_event, details) => {
+    reportMainProcessError('renderer process gone', details);
+  });
+  mainWindow.on('unresponsive', () => {
+    reportMainProcessError('window unresponsive', new Error('The World renderer became unresponsive.'));
+  });
+  mainWindow.on('closed', () => {
+    mainWindow = undefined;
+  });
+
   const devUrl = process.env.VITE_DEV_SERVER_URL;
   if (devUrl) {
-    void window.loadURL(devUrl);
-    window.webContents.openDevTools({ mode: 'detach' });
+    void mainWindow.loadURL(devUrl).catch((error) => reportMainProcessError('load dev renderer failed', error));
+    if (process.env.THE_WORLD_OPEN_DEVTOOLS === '1') {
+      mainWindow.webContents.openDevTools({ mode: 'detach' });
+    }
     return;
   }
 
-  void window.loadFile(path.join(__dirname, '../renderer/index.html'));
+  void mainWindow.loadFile(path.join(__dirname, '../renderer/index.html'))
+    .catch((error) => reportMainProcessError('load renderer failed', error));
 }
 
 app.on('window-all-closed', () => {
@@ -103,6 +151,12 @@ app.on('activate', () => {
   }
 });
 
-await app.whenReady();
-await createRuntime();
-createWindow();
+app.whenReady()
+  .then(() => {
+    createRuntime();
+    createWindow();
+  })
+  .catch((error) => {
+    reportMainProcessError('app ready failed', error);
+    app.quit();
+  });

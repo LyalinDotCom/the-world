@@ -1,5 +1,6 @@
 {
   "name": "the-world",
+  "productName": "The World",
   "version": "0.1.0",
   "private": true,
   "description": "Electron-hosted procedural AI NPC demo for @game-llm.",
