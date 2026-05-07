@@ -4,6 +4,19 @@ The World is a **Gemma-in-games showcase**. Treat it as a prototype for game-nat
 
 The long-term goal is to prove that local Gemma-class models can bring a procedural game world to life while the game keeps control of state, lore, safety, and progression.
 
+## Soul Of The Project
+
+This project exists to learn what Gemma can and cannot do in an actual game loop. Do not lose sight of that.
+
+- The playable demo should test the model, not hide it. If Gemma gives a weak, vague, wrong, slow, or malformed answer, make that visible through the conversation, diagnostics, traces, tests, or notes. Do not silently replace it with a better handcrafted answer.
+- The SDK should make model behavior controllable, observable, and safe; it should not become a pile of keyword scripts pretending to be AI.
+- Fallbacks are for technical failure states and tests, not for making the playable demo look smarter than the model is.
+- When the model fails at an intended capability, prefer improving the prompt, schema, context, recipe split, retrieval, model settings, diagnostics, or documentation of the failure before adding deterministic game logic.
+- Deterministic guardrails are acceptable only for game integrity and runtime safety: schema validation, cancellation, cache policy, no direct state mutation, and narrow policy thresholds that a real SDK user would expect. They must be explicit, configurable when reasonable, and visible as SDK policy rather than hidden game behavior.
+- Do not add broad keyword trees for social judgment, lore answers, insults, persuasion, fear, secrets, or relationship handling. Those are exactly the model capabilities this demo is meant to evaluate.
+- If a change reduces the amount of real model judgment in the playable path, call that out in the PR/commit notes and justify why it is necessary for SDK control rather than demo polish.
+- The best outcome is not that every interaction looks perfect. The best outcome is that developers can see where Gemma is powerful, where it struggles, and how a light SDK can expose, constrain, and measure that honestly.
+
 ## Product Direction
 
 - The player should feel like the world is alive before they interact with it.
