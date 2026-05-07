@@ -192,6 +192,27 @@ button:disabled {
   background: #131812;
 }
 
+.trace-toggle {
+  width: 100%;
+  min-height: 30px;
+  margin-top: 8px;
+  padding: 0 10px;
+  font-size: 12px;
+}
+
+.perf-log-toggle {
+  width: 100%;
+  min-height: 30px;
+  margin-top: 10px;
+  padding: 0 10px;
+  font-size: 12px;
+}
+
+.perf-log-line {
+  margin-top: 7px;
+  color: #bfcdaa;
+}
+
 .devtools {
   position: absolute;
   right: 16px;
@@ -205,6 +226,10 @@ button:disabled {
   box-shadow: 0 20px 70px rgba(0, 0, 0, 0.24);
   backdrop-filter: blur(10px);
   overflow: hidden;
+}
+
+.devtools.collapsed {
+  display: none;
 }
 
 .devtools header {
@@ -224,7 +249,7 @@ button:disabled {
 }
 
 .devtools pre {
-  max-height: 25vh;
+  max-height: 18vh;
   margin: 8px 0 0;
   padding-top: 8px;
   border-top: 1px solid rgba(238, 211, 149, 0.14);
@@ -232,6 +257,64 @@ button:disabled {
   font: 11px/1.45 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   white-space: pre-wrap;
   overflow: auto;
+}
+
+.diagnostics-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.diagnostics-grid div {
+  min-width: 0;
+  padding: 7px;
+  border: 1px solid rgba(238, 211, 149, 0.12);
+  border-radius: 6px;
+  background: rgba(241, 229, 199, 0.06);
+}
+
+.diagnostics-grid span {
+  display: block;
+  color: #9dc27c;
+  font-size: 10px;
+  text-transform: uppercase;
+  margin-bottom: 3px;
+}
+
+.diagnostics-grid strong {
+  display: block;
+  color: #eadbb8;
+  font-size: 11px;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+
+.diag-graph-wrap {
+  position: relative;
+  margin-top: 10px;
+}
+
+#diag-graph {
+  display: block;
+  width: 100%;
+  height: 96px;
+  border: 1px solid rgba(238, 211, 149, 0.14);
+  border-radius: 6px;
+  background: rgba(10, 12, 10, 0.72);
+}
+
+.diag-graph-label {
+  position: absolute;
+  right: 8px;
+  top: 7px;
+  max-width: calc(100% - 16px);
+  color: #eadbb8;
+  font-size: 11px;
+  line-height: 1.15;
+  text-align: right;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.72);
+  pointer-events: none;
 }
 
 .dialogue {

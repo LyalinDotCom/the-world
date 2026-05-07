@@ -1,5 +1,18 @@
 import { z } from 'zod';
 
+export const NpcMoodSchema = z.enum([
+  'calm',
+  'curious',
+  'wary',
+  'busy',
+  'lonely',
+  'cheerful',
+  'afraid',
+  'angry',
+  'offended',
+  'hostile'
+]);
+
 export const DialogueEmotionSchema = z.enum([
   'neutral',
   'warm',
@@ -69,6 +82,10 @@ export const GameAIEventSchema = z.discriminatedUnion('type', [
 export const DialogueTurnSchema = z.object({
   text: z.string().min(1).max(420),
   emotion: DialogueEmotionSchema,
+  mood: NpcMoodSchema,
+  attitudeDelta: z.number().min(-30).max(30),
+  willTalkAgain: z.boolean(),
+  refusalReason: z.string().min(1).max(180).optional(),
   animationHint: AnimationHintSchema.optional(),
   events: z.array(GameAIEventSchema).default([]),
   memoryWrites: z.array(MemoryWriteSchema).default([]),
@@ -91,16 +108,21 @@ export const OverheardExchangeSchema = z.object({
   safetyFlags: z.array(SafetyFlagSchema).default([])
 });
 
+const moodEnum = ['calm', 'curious', 'wary', 'busy', 'lonely', 'cheerful', 'afraid', 'angry', 'offended', 'hostile'];
 const emotionEnum = ['neutral', 'warm', 'angry', 'afraid', 'suspicious', 'curious', 'amused', 'sad'];
 const animationEnum = ['idle', 'point', 'laugh', 'lookAway', 'shrug', 'wave', 'thinking'];
 
 export const dialogueTurnJsonSchema = {
   type: 'object',
   additionalProperties: false,
-  required: ['text', 'emotion', 'events', 'memoryWrites', 'safetyFlags'],
+  required: ['text', 'emotion', 'mood', 'attitudeDelta', 'willTalkAgain', 'events', 'memoryWrites', 'safetyFlags'],
   properties: {
     text: { type: 'string', minLength: 1, maxLength: 420 },
     emotion: { type: 'string', enum: emotionEnum },
+    mood: { type: 'string', enum: moodEnum },
+    attitudeDelta: { type: 'number', minimum: -30, maximum: 30 },
+    willTalkAgain: { type: 'boolean' },
+    refusalReason: { type: 'string', minLength: 1, maxLength: 180 },
     animationHint: { type: 'string', enum: animationEnum },
     shouldEndConversation: { type: 'boolean' },
     events: {

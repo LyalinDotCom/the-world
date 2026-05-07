@@ -5,7 +5,7 @@ import { MemoryStore } from './memory.js';
 import { MockGameAIProvider } from './mockProvider.js';
 import { repairRecipeValue } from './repair.js';
 import { defaultRecipes, npcBarkRecipe, npcDialogueRecipe, npcOverhearRecipe, type NpcBarkRecipeInput, type NpcDialogueRecipeInput, type NpcOverhearRecipeInput } from './recipes.js';
-import type { BarkRequest, BarkTurn, DebugTrace, DialogueRequest, DialogueTurn, GameAIConfig, GameAIProvider, NpcDefinition, OverheardExchange, OverhearRequest, PromptCompileContext, RecipeDefinition, RunRecipeOptions } from './types.js';
+import type { BarkRequest, BarkTurn, DebugTrace, DialogueRequest, DialogueTurn, GameAIConfig, GameAIProvider, NpcDefinition, NpcGenerationOptions, OverheardExchange, OverhearRequest, PromptCompileContext, RecipeDefinition, RunRecipeOptions } from './types.js';
 
 type AnyRecipe = RecipeDefinition<unknown, unknown>;
 
@@ -36,10 +36,14 @@ export class GameAI {
       throw new Error(`Unknown GameAI recipe: ${recipeId}`);
     }
 
-    const cacheEnabled = this.config.runtime?.cache !== 'none' && !options.bypassCache;
-    const cached = cacheEnabled ? this.cache.get(options.cacheKey) as TOutput | undefined : undefined;
+    const configuredCacheOnly = this.config.runtime?.pregeneration?.cacheOnlyRuntimeRecipes?.includes(recipeId) ?? false;
+    const cacheMode = options.cacheMode ?? (configuredCacheOnly ? 'cache-only' : options.bypassCache ? 'refresh' : 'read-through');
+    const cacheEnabled = this.config.runtime?.cache !== 'none';
+    const canReadCache = cacheEnabled && cacheMode !== 'refresh';
+    const canWriteCache = cacheEnabled && cacheMode !== 'cache-only';
+    const cached = canReadCache ? this.cache.get(options.cacheKey) as TOutput | undefined : undefined;
     if (cached) {
-      return cached;
+      return markCacheHit(cached);
     }
 
     const context = this.contextForInput(input);
@@ -52,6 +56,9 @@ export class GameAI {
     let schemaErrors: string[] | undefined;
 
     try {
+      if (cacheMode === 'cache-only') {
+        throw new Error(`Cache miss for pre-generated recipe: ${recipeId}`);
+      }
       const response = await this.provider.generate({
         messages,
         schema: recipe.jsonSchema,
@@ -81,14 +88,16 @@ export class GameAI {
         providerId: this.provider.id,
         model: response.model ?? this.provider.model,
         latencyMs: response.metrics?.latencyMs ?? Date.now() - startedAt,
-        cache: cacheEnabled ? 'miss' : 'bypass',
+        cache: options.cacheKey && cacheEnabled ? 'miss' : 'bypass',
         prompt,
         rawText,
         repaired,
         retrievedMemory: context.memory,
         schemaErrors
       });
-      this.cache.set(options.cacheKey, result);
+      if (canWriteCache) {
+        this.cache.set(options.cacheKey, result);
+      }
       return result;
     } catch (error) {
       fallback = true;
@@ -98,7 +107,7 @@ export class GameAI {
         providerId: this.provider.id,
         model: this.provider.model,
         latencyMs: Date.now() - startedAt,
-        cache: cacheEnabled ? 'miss' : 'bypass',
+        cache: options.cacheKey && cacheEnabled ? 'miss' : 'bypass',
         prompt,
         rawText,
         repaired,
@@ -106,7 +115,6 @@ export class GameAI {
         schemaErrors,
         fallback
       });
-      this.cache.set(options.cacheKey, result);
       return result;
     }
   }
@@ -138,46 +146,52 @@ export class GameAI {
 export class GameAINpc {
   constructor(private readonly ai: GameAI, readonly definition: NpcDefinition) {}
 
-  async respond(request: DialogueRequest): Promise<DialogueTurn> {
+  async respond(request: DialogueRequest, options: NpcGenerationOptions = {}): Promise<DialogueTurn> {
+    const cacheBacked = Boolean(options.cacheKey || options.cacheOnly || options.refresh);
     const result = await this.ai.run<NpcDialogueRecipeInput, DialogueTurn>(npcDialogueRecipe.id, {
       npc: this.definition,
       request
     }, {
-      cacheKey: undefined,
-      bypassCache: true,
-      timeoutMs: 20_000
+      cacheKey: options.cacheKey,
+      bypassCache: !cacheBacked,
+      cacheMode: cacheModeFromOptions(options),
+      timeoutMs: options.timeoutMs ?? 20_000
     });
 
-    this.ai.memory.write({
-      scope: 'npc',
-      id: this.definition.id,
-      text: `Player said: ${request.playerText.slice(0, 180)}`,
-      importance: 0.35
-    });
-    this.ai.memory.writeMany(result.memoryWrites.map((write) => ({
-      ...write,
-      id: write.id ?? this.definition.id
-    })));
+    if (options.writeMemory !== false && !result.trace?.fallback) {
+      this.ai.memory.write({
+        scope: 'npc',
+        id: this.definition.id,
+        text: `Player said: ${request.playerText.slice(0, 180)}`,
+        importance: 0.35
+      });
+      this.ai.memory.writeMany(result.memoryWrites.map((write) => ({
+        ...write,
+        id: write.id ?? this.definition.id
+      })));
+    }
     return result;
   }
 
-  async bark(request: BarkRequest): Promise<BarkTurn> {
+  async bark(request: BarkRequest, options: NpcGenerationOptions = {}): Promise<BarkTurn> {
     return await this.ai.run<NpcBarkRecipeInput, BarkTurn>(npcBarkRecipe.id, {
       npc: this.definition,
       request
     }, {
-      cacheKey: `bark:${this.definition.id}:${request.scene.location}:${request.reason ?? ''}:${request.scene.timeOfDay ?? ''}`,
-      timeoutMs: 8_000
+      cacheKey: options.cacheKey ?? `bark:${this.definition.id}:${request.scene.location}:${request.reason ?? ''}:${request.scene.timeOfDay ?? ''}`,
+      cacheMode: cacheModeFromOptions(options),
+      timeoutMs: options.timeoutMs ?? 8_000
     });
   }
 
-  async overhear(request: OverhearRequest): Promise<OverheardExchange> {
+  async overhear(request: OverhearRequest, options: NpcGenerationOptions = {}): Promise<OverheardExchange> {
     return await this.ai.run<NpcOverhearRecipeInput, OverheardExchange>(npcOverhearRecipe.id, {
       npc: this.definition,
       request
     }, {
-      cacheKey: `overhear:${this.definition.id}:${request.otherNpc.id}:${request.scene.location}:${request.topic ?? ''}`,
-      timeoutMs: 12_000
+      cacheKey: options.cacheKey ?? `overhear:${this.definition.id}:${request.otherNpc.id}:${request.scene.location}:${request.topic ?? ''}`,
+      cacheMode: cacheModeFromOptions(options),
+      timeoutMs: options.timeoutMs ?? 12_000
     });
   }
 }
@@ -194,6 +208,29 @@ function attachTrace<TOutput>(output: TOutput, trace: DebugTrace): TOutput {
     };
   }
   return output;
+}
+
+function markCacheHit<TOutput>(output: TOutput): TOutput {
+  if (typeof output === 'object' && output !== null && 'trace' in output) {
+    const traced = output as TOutput & { trace?: DebugTrace };
+    if (traced.trace) {
+      return {
+        ...traced,
+        trace: {
+          ...traced.trace,
+          cache: 'hit',
+          latencyMs: 0
+        }
+      };
+    }
+  }
+  return output;
+}
+
+function cacheModeFromOptions(options: NpcGenerationOptions): RunRecipeOptions['cacheMode'] {
+  if (options.cacheOnly) return 'cache-only';
+  if (options.refresh) return 'refresh';
+  return undefined;
 }
 
 function isNpcInput(input: unknown): input is { npc: NpcDefinition } {

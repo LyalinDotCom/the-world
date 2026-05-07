@@ -38,6 +38,19 @@ export interface House {
   kind: 'cottage' | 'shed' | 'wayhouse';
 }
 
+export interface Landmark {
+  id: string;
+  name: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  kind: 'mill' | 'castle' | 'chapel' | 'tower';
+  marker: string;
+  lore: string;
+  rumor: string;
+}
+
 export interface MapBounds {
   minX: number;
   minY: number;
@@ -100,6 +113,57 @@ export const woods: Wood[] = [
   { id: 'hollow-pines', name: 'Hollow Pines', x: -2100, y: 860, radiusX: 560, radiusY: 390 },
   { id: 'mothwood', name: 'Mothwood', x: 60, y: -1320, radiusX: 700, radiusY: 430 },
   { id: 'wolfmoon-wood', name: 'Wolfmoon Wood', x: 2500, y: 980, radiusX: 650, radiusY: 460 }
+];
+
+export const landmarks: Landmark[] = [
+  {
+    id: 'old-mill',
+    name: 'The Old Mill',
+    x: -2180,
+    y: -760,
+    width: 142,
+    height: 124,
+    kind: 'mill',
+    marker: '#d9b15f',
+    lore: 'The Old Mill west of Rivergate turns its wheel on windless nights, grinding grain nobody brought.',
+    rumor: 'folk lower their voices when the Old Mill creaks after sunset'
+  },
+  {
+    id: 'abandoned-castle',
+    name: 'The Abandoned Castle',
+    x: 3300,
+    y: -1320,
+    width: 190,
+    height: 150,
+    kind: 'castle',
+    marker: '#9aa0ad',
+    lore: 'The Abandoned Castle above Cindervale has no lord, but its watchfires appear in storms.',
+    rumor: 'the castle lights burn blue when no one living is inside'
+  },
+  {
+    id: 'sunken-chapel',
+    name: 'The Sunken Chapel',
+    x: -760,
+    y: 1680,
+    width: 132,
+    height: 118,
+    kind: 'chapel',
+    marker: '#7fb0a4',
+    lore: 'The Sunken Chapel bell can be heard under wet ground, though the chapel doors are half buried.',
+    rumor: 'the chapel bell rings from below when rain is still hours away'
+  },
+  {
+    id: 'black-bell-tower',
+    name: 'Black Bell Tower',
+    x: 1580,
+    y: -1650,
+    width: 112,
+    height: 168,
+    kind: 'tower',
+    marker: '#c06a50',
+    lore: 'Black Bell Tower has no rope and no bell ringer, but travelers count its tolls before choosing a road.',
+    rumor: 'the black tower tolls once for each traveler it wants to keep'
+  }
 ];
 
 export class ProceduralWorld {
@@ -186,18 +250,17 @@ export class ProceduralWorld {
     for (const town of towns) {
       for (let i = 0; i < 24; i += 1) {
         const rnd = hash2(i, Math.floor(town.x), this.seed ^ town.id.length);
-        const angle = (i / 24) * Math.PI * 2 + ((rnd % 80) - 40) * 0.005;
-        const ring = i % 5 === 0 ? 0.28 : i % 3 === 0 ? 0.48 : 0.66;
-        const x = town.x + Math.cos(angle) * town.radius * ring + ((rnd >>> 8) % 56) - 28;
-        const y = town.y + Math.sin(angle) * town.radius * ring * 0.58 + ((rnd >>> 14) % 46) - 23;
-        if (!rectContains(minX, minY, maxX, maxY, x, y)) continue;
         const kind: House['kind'] = i % 7 === 0 ? 'wayhouse' : i % 4 === 0 ? 'shed' : 'cottage';
+        const width = kind === 'wayhouse' ? 86 : kind === 'shed' ? 48 : 62;
+        const height = kind === 'wayhouse' ? 58 : kind === 'shed' ? 38 : 46;
+        const placed = this.placeTownHouse(town, i, rnd, width, height);
+        if (!placed || !rectContains(minX, minY, maxX, maxY, placed.x, placed.y)) continue;
         houses.push({
-          x,
-          y,
+          x: placed.x,
+          y: placed.y,
           width: kind === 'wayhouse' ? 86 : kind === 'shed' ? 48 : 62,
           height: kind === 'wayhouse' ? 58 : kind === 'shed' ? 38 : 46,
-          rotation: angle + Math.PI / 2 + (((rnd >>> 20) % 14) - 7) * 0.025,
+          rotation: 0,
           wall: kind === 'shed' ? '#67553f' : '#907a58',
           roof: kind === 'wayhouse' ? town.accent : '#604936',
           kind
@@ -225,15 +288,16 @@ export class ProceduralWorld {
           y = routeY + (((rnd >>> 15) % 2 === 0 ? -1 : 1) * (110 + ((rnd >>> 17) % 90)));
         }
         if (!isInsideMap({ x, y }, 58)) continue;
-        const terrain = this.terrainAt(x, y);
-        if (terrain.biome === 'wetland' || terrain.biome === 'stone') continue;
         const kind: House['kind'] = rnd % 7 === 0 ? 'wayhouse' : rnd % 3 === 0 ? 'shed' : 'cottage';
+        const width = kind === 'wayhouse' ? 82 : kind === 'shed' ? 48 : 62;
+        const height = kind === 'wayhouse' ? 60 : kind === 'shed' ? 38 : 46;
+        if (!this.canPlaceStructure({ x, y, width, height }, 26)) continue;
         houses.push({
           x,
           y,
-          width: kind === 'wayhouse' ? 82 : kind === 'shed' ? 48 : 62,
-          height: kind === 'wayhouse' ? 60 : kind === 'shed' ? 38 : 46,
-          rotation: (((rnd >>> 21) % 15) - 7) * 0.018,
+          width,
+          height,
+          rotation: 0,
           wall: kind === 'shed' ? '#6d5840' : '#8a7656',
           roof: kind === 'wayhouse' ? '#8f4638' : '#5f4936',
           kind
@@ -241,6 +305,19 @@ export class ProceduralWorld {
       }
     }
     return houses;
+  }
+
+  landmarksInRect(minX: number, minY: number, maxX: number, maxY: number): Landmark[] {
+    return landmarks.filter((landmark) => rectsOverlap(
+      minX,
+      minY,
+      maxX - minX,
+      maxY - minY,
+      landmark.x - landmark.width / 2,
+      landmark.y - landmark.height / 2,
+      landmark.width,
+      landmark.height
+    ));
   }
 
   npcsNear(x: number, y: number, radius: number): GeneratedNpc[] {
@@ -327,7 +404,10 @@ export class ProceduralWorld {
           ],
           speechStyle: speechStyleFor(role, mood),
           goals: [`keep moving through ${regionName(x, y)}`, 'learn which paths are safe tonight'],
-          knows: ['old roads move after storms', 'the old mill is avoided after dark'],
+          knows: [
+            'old roads move after storms',
+            ...landmarks.map((landmark) => landmark.lore)
+          ],
           doesNotKnow: ['the true cause of the old mill turning at night'],
           rules: [
             'Do not reveal hidden causes behind local mysteries.',
@@ -345,6 +425,60 @@ export class ProceduralWorld {
     }
     this.npcChunks.set(key, npcs);
     return npcs;
+  }
+
+  private placeTownHouse(town: Town, index: number, rnd: number, width: number, height: number): Vec2 | undefined {
+    const col = index % 6;
+    const row = Math.floor(index / 6);
+    const stagger = row % 2 === 0 ? 0 : 34;
+    const jitterX = ((rnd >>> 8) % 28) - 14;
+    const jitterY = ((rnd >>> 14) % 24) - 12;
+    const base = {
+      x: town.x + (col - 2.5) * 128 + stagger + jitterX,
+      y: town.y + (row - 1.5) * 118 + jitterY
+    };
+    const candidates: Vec2[] = [
+      base,
+      { x: base.x, y: base.y - 104 },
+      { x: base.x, y: base.y + 104 },
+      { x: base.x - 96, y: base.y },
+      { x: base.x + 96, y: base.y },
+      { x: base.x - 78, y: base.y - 86 },
+      { x: base.x + 78, y: base.y + 86 }
+    ];
+    return candidates.find((candidate) => (
+      distance(candidate, town) < town.radius * 0.95 &&
+      this.canPlaceStructure({ ...candidate, width, height }, 32)
+    ));
+  }
+
+  private canPlaceStructure(structure: { x: number; y: number; width: number; height: number }, padding: number): boolean {
+    const halfW = structure.width / 2 + padding;
+    const halfH = structure.height / 2 + padding;
+    const samples: Vec2[] = [
+      { x: structure.x, y: structure.y },
+      { x: structure.x - halfW, y: structure.y - halfH },
+      { x: structure.x + halfW, y: structure.y - halfH },
+      { x: structure.x - halfW, y: structure.y + halfH },
+      { x: structure.x + halfW, y: structure.y + halfH }
+    ];
+    if (samples.some((sample) => !isInsideMap(sample, 64))) return false;
+    if (samples.some((sample) => pathStrength(sample.x, sample.y) > 0.2)) return false;
+    if (samples.some((sample) => {
+      const terrain = this.terrainAt(sample.x, sample.y);
+      return terrain.biome === 'wetland' || terrain.biome === 'stone';
+    })) return false;
+    if (landmarks.some((landmark) => rectsOverlap(
+      structure.x - halfW,
+      structure.y - halfH,
+      halfW * 2,
+      halfH * 2,
+      landmark.x - landmark.width / 2 - 42,
+      landmark.y - landmark.height / 2 - 42,
+      landmark.width + 84,
+      landmark.height + 84
+    ))) return false;
+    return true;
   }
 }
 
@@ -367,6 +501,21 @@ export function randomTownSpawn(): Vec2 {
     x: town.x + Math.cos(angle) * radius,
     y: town.y + Math.sin(angle) * radius * 0.62
   }, 80);
+}
+
+export function landmarkLoreLines(): string[] {
+  return landmarks.flatMap((landmark) => [
+    landmark.lore,
+    `Rumor: ${landmark.rumor}.`
+  ]);
+}
+
+export function nearestLandmarks(point: Vec2, radius: number): Landmark[] {
+  return landmarks
+    .map((landmark) => ({ landmark, distance: distance(point, landmark) }))
+    .filter((entry) => entry.distance <= radius)
+    .sort((a, b) => a.distance - b.distance)
+    .map((entry) => entry.landmark);
 }
 
 export function clampToMap(point: Vec2, margin = 0): Vec2 {
@@ -444,6 +593,10 @@ function woodAt(point: Vec2): Wood | undefined {
 
 function rectContains(minX: number, minY: number, maxX: number, maxY: number, x: number, y: number): boolean {
   return x >= minX && x <= maxX && y >= minY && y <= maxY;
+}
+
+function rectsOverlap(ax: number, ay: number, aw: number, ah: number, bx: number, by: number, bw: number, bh: number): boolean {
+  return ax < bx + bw && ax + aw > bx && ay < by + bh && ay + ah > by;
 }
 
 function slug(value: string): string {

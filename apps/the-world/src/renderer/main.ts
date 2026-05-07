@@ -1,13 +1,18 @@
-import type { DialogueTurn, OverheardExchange } from '@game-llm/core';
+import type { DialogueTurn, NpcMood, OverheardExchange } from '@game-llm/core';
+import type { GameAIPreGenerateJob } from '@game-llm/electron';
 import { getGameAI } from './aiClient.js';
+import type { DiagnosticsSample, PerfLogStatus } from '../shared/bridge.js';
 import {
   ProceduralWorld,
   clampToMap,
   crossPathX,
   distance,
   isInsideMap,
+  landmarkLoreLines,
+  landmarks,
   mainPathY,
   mapBounds,
+  nearestLandmarks,
   randomTownSpawn,
   regionName,
   towns,
@@ -15,6 +20,8 @@ import {
   woods,
   type GeneratedNpc,
   type House,
+  type Landmark,
+  type Tree,
   type Vec2
 } from './world.js';
 import './style.css';
@@ -44,6 +51,21 @@ interface LogLine {
   kind: 'player' | 'npc' | 'system';
 }
 
+interface RendererMemoryInfo {
+  usedJSHeapSize: number;
+  totalJSHeapSize: number;
+  jsHeapSizeLimit: number;
+}
+
+interface NpcSession {
+  mood: NpcMood;
+  disposition: number;
+  willTalkAgain: boolean;
+  refusalReason?: string;
+  lastBumpedAt: number;
+  bumpInFlight: boolean;
+}
+
 const canvasElement = document.querySelector<HTMLCanvasElement>('#world');
 const hudElement = document.querySelector<HTMLDivElement>('#hud');
 if (!canvasElement || !hudElement) {
@@ -60,12 +82,13 @@ const ctx: CanvasRenderingContext2D = canvasContext;
 
 const ai = createRequiredGameAI();
 const world = new ProceduralWorld('the-world-v1');
-const spawn = randomTownSpawn();
+const playerRadius = 15;
+const spawn = findSafeSpawn(randomTownSpawn());
 const keys = new Set<string>();
 const player = {
   x: spawn.x,
   y: spawn.y,
-  radius: 15,
+  radius: playerRadius,
   speed: 330,
   heading: 0,
   moving: false
@@ -82,7 +105,10 @@ let ended = false;
 let ambientInFlight = false;
 let overhearInFlight = false;
 let groupRefusalInFlight = false;
+let ambientCacheReady = false;
+let ambientCacheInFlight = false;
 let providerLine = 'AI runtime connecting...';
+let providerBaseLine = providerLine;
 let warmupLine = 'warmup pending';
 let traceLine = 'No generation yet.';
 let traceDetail = '';
@@ -92,6 +118,20 @@ let footsteps: Footstep[] = [];
 let lastFootstepAt = 0;
 let wallPulseUntil = 0;
 let interactionKey = '';
+let activeNpcPosition: Vec2 | undefined;
+let traceOpen = false;
+let clickableNpcs: GeneratedNpc[] = [];
+const npcSessions = new Map<string, NpcSession>();
+let diagnosticsHistory: number[] = [];
+let cpuHistory: number[] = [];
+let fpsHistory: number[] = [];
+let latestDiagnostics: DiagnosticsSample | undefined;
+let fps = 0;
+let fpsFrames = 0;
+let fpsWindowStartedAt = performance.now();
+let perfLogStatus: PerfLogStatus = { active: false, samples: 0 };
+let perfLogLastSampleAt = 0;
+let perfLogWriteInFlight = false;
 
 hud.innerHTML = `
   <div class="topbar">
@@ -108,12 +148,28 @@ hud.innerHTML = `
   <aside class="minimap-panel">
     <header>Map</header>
     <canvas id="minimap" aria-label="Mini map"></canvas>
+    <button id="trace-toggle" class="trace-toggle" type="button">Runtime Trace</button>
   </aside>
-  <aside class="devtools">
+  <aside id="devtools" class="devtools collapsed">
     <header>Runtime Trace</header>
     <div id="warmup-line" class="devrow"></div>
     <div id="trace-line" class="devrow"></div>
     <pre id="trace-detail"></pre>
+    <header>Machine Diagnostics</header>
+    <div class="diagnostics-grid">
+      <div><span>Frame Rate</span><strong id="diag-fps">pending</strong></div>
+      <div><span>CPU Load</span><strong id="diag-cpu">pending</strong></div>
+      <div><span>GPU Load</span><strong id="diag-gpu">pending</strong></div>
+      <div><span>GPU Memory</span><strong id="diag-gpu-memory">pending</strong></div>
+      <div><span>Machine Memory</span><strong id="diag-system-memory">pending</strong></div>
+      <div><span>App Memory</span><strong id="diag-app-memory">pending</strong></div>
+    </div>
+    <button id="perf-log-toggle" class="perf-log-toggle" type="button">Record Perf</button>
+    <div id="perf-log-line" class="devrow perf-log-line">Perf log idle</div>
+    <div class="diag-graph-wrap">
+      <canvas id="diag-graph" aria-label="FPS CPU GPU graph"></canvas>
+      <div id="diag-graph-label" class="diag-graph-label">Perf trend pending</div>
+    </div>
   </aside>
   <section id="dialogue" class="dialogue hidden">
     <header>
@@ -136,6 +192,21 @@ const providerEl = document.querySelector<HTMLSpanElement>('#provider-line')!;
 const warmupEl = document.querySelector<HTMLDivElement>('#warmup-line')!;
 const traceEl = document.querySelector<HTMLDivElement>('#trace-line')!;
 const traceDetailEl = document.querySelector<HTMLPreElement>('#trace-detail')!;
+const diagFpsEl = document.querySelector<HTMLElement>('#diag-fps')!;
+const diagCpuEl = document.querySelector<HTMLElement>('#diag-cpu')!;
+const diagGpuEl = document.querySelector<HTMLElement>('#diag-gpu')!;
+const diagGpuMemoryEl = document.querySelector<HTMLElement>('#diag-gpu-memory')!;
+const diagSystemMemoryEl = document.querySelector<HTMLElement>('#diag-system-memory')!;
+const diagAppMemoryEl = document.querySelector<HTMLElement>('#diag-app-memory')!;
+const diagGraphCanvas = document.querySelector<HTMLCanvasElement>('#diag-graph')!;
+const diagGraphLabelEl = document.querySelector<HTMLElement>('#diag-graph-label')!;
+const perfLogToggle = document.querySelector<HTMLButtonElement>('#perf-log-toggle')!;
+const perfLogLineEl = document.querySelector<HTMLElement>('#perf-log-line')!;
+const diagGraphContext = diagGraphCanvas.getContext('2d');
+if (!diagGraphContext) {
+  throw new Error('Diagnostics graph canvas context is unavailable.');
+}
+const diagGraphCtx: CanvasRenderingContext2D = diagGraphContext;
 const regionEl = document.querySelector<HTMLSpanElement>('#region-line')!;
 const coordEl = document.querySelector<HTMLSpanElement>('#coord-line')!;
 const interactionEl = document.querySelector<HTMLDivElement>('#interaction')!;
@@ -145,6 +216,8 @@ if (!minimapContext) {
   throw new Error('Mini map canvas context is unavailable.');
 }
 const minimapCtx: CanvasRenderingContext2D = minimapContext;
+const traceToggle = document.querySelector<HTMLButtonElement>('#trace-toggle')!;
+const devtoolsEl = document.querySelector<HTMLElement>('#devtools')!;
 const dialogueEl = document.querySelector<HTMLElement>('#dialogue')!;
 const dialogueNameEl = document.querySelector<HTMLElement>('#dialogue-name')!;
 const dialogueRoleEl = document.querySelector<HTMLElement>('#dialogue-role')!;
@@ -156,6 +229,23 @@ const dialogueGoodbye = document.querySelector<HTMLButtonElement>('#dialogue-goo
 const dialogueClose = document.querySelector<HTMLButtonElement>('#dialogue-close')!;
 
 window.addEventListener('resize', resize);
+canvas.addEventListener('click', (event) => {
+  if (activeNpc) return;
+  const rect = canvas.getBoundingClientRect();
+  const camera = cameraForPlayer();
+  const point = {
+    x: camera.x + event.clientX - rect.left,
+    y: camera.y + event.clientY - rect.top
+  };
+  const now = performance.now();
+  const clicked = clickableNpcs
+    .map((npc) => ({ npc, distance: distance(npcPosition(npc, now, clickableNpcs), point) }))
+    .filter((entry) => entry.distance < 42)
+    .sort((a, b) => a.distance - b.distance)[0]?.npc;
+  if (clicked) {
+    void startConversation(clicked);
+  }
+});
 window.addEventListener('keydown', (event) => {
   if (event.repeat) return;
   if (event.key.toLowerCase() === 'e' && nearestNpc && !activeNpc) {
@@ -182,15 +272,25 @@ dialogueGoodbye.addEventListener('click', () => {
   void sendToNpc('Goodbye.');
 });
 dialogueClose.addEventListener('click', closeConversation);
+traceToggle.addEventListener('click', () => {
+  traceOpen = !traceOpen;
+  renderHud();
+});
+perfLogToggle.addEventListener('click', () => {
+  void togglePerfLog();
+});
 
 resize();
 void initializeRuntime();
+void updateDiagnostics();
+window.setInterval(() => void updateDiagnostics(), 1_500);
 requestAnimationFrame(frame);
 
 async function initializeRuntime(): Promise<void> {
   try {
     const health = await ai.health();
     providerLine = `${health.provider}${health.model ? ` / ${health.model}` : ''} / ${health.mode}`;
+    providerBaseLine = providerLine;
     renderHud();
   } catch (error) {
     providerLine = `runtime unavailable / ${errorMessage(error)}`;
@@ -201,23 +301,174 @@ async function initializeRuntime(): Promise<void> {
     renderHud();
     const health = await ai.warmup();
     warmupLine = health.ok ? `warm / ${health.model ?? health.provider}` : `warmup degraded / ${health.message ?? health.mode}`;
+    renderHud();
+    if (health.ok) {
+      await pregenerateAmbientCache(health.model ?? health.provider);
+    }
   } catch (error) {
     warmupLine = `warmup failed / ${errorMessage(error)}`;
   }
   renderHud();
 }
 
+async function pregenerateAmbientCache(modelLabel: string): Promise<void> {
+  if (ambientCacheInFlight || ambientCacheReady) return;
+  ambientCacheInFlight = true;
+  const jobs = buildPregenerationJobs();
+  let generated = 0;
+  let failed = 0;
+  try {
+    if (jobs.length === 0) {
+      ambientCacheReady = true;
+      warmupLine = `warm / ${modelLabel} / no ambient cache jobs`;
+      providerLine = `${providerBaseLine} / ambient cache empty`;
+      return;
+    }
+    warmupLine = `warm / ${modelLabel} / preparing ambient cache 0/${jobs.length}`;
+    providerLine = `${providerBaseLine} / caching ambient 0/${jobs.length}`;
+    traceLine = 'pregeneration / ambient cache starting';
+    renderHud();
+    const chunkSize = 2;
+    for (let index = 0; index < jobs.length; index += chunkSize) {
+      const chunk = jobs.slice(index, index + chunkSize);
+      const result = await ai.preGenerate({ jobs: chunk, maxConcurrency: 1 });
+      generated += result.generated;
+      failed += result.failed;
+      warmupLine = `warm / ${modelLabel} / ambient cache ${Math.min(index + chunk.length, jobs.length)}/${jobs.length}`;
+      providerLine = `${providerBaseLine} / caching ambient ${Math.min(index + chunk.length, jobs.length)}/${jobs.length}`;
+      traceLine = `pregeneration / generated ${generated}, failed ${failed}`;
+      renderHud();
+    }
+    ambientCacheReady = generated > 0;
+    warmupLine = `warm / ${modelLabel} / ambient cache ${generated}/${jobs.length}`;
+    providerLine = `${providerBaseLine} / ambient cached ${generated}/${jobs.length}`;
+    traceLine = `pregeneration ready / ${generated}/${jobs.length} cached`;
+  } catch (error) {
+    warmupLine = `warm / ${modelLabel} / ambient cache degraded`;
+    providerLine = `${providerBaseLine} / ambient cache degraded`;
+    traceLine = `pregeneration failed / ${errorMessage(error)}`;
+  } finally {
+    ambientCacheInFlight = false;
+    renderHud();
+  }
+}
+
+function buildPregenerationJobs(): GameAIPreGenerateJob[] {
+  const npcs = pregenerationNpcPool();
+  const open = npcs.filter((npc) => npc.conversationPolicy === 'open');
+  const jobs: GameAIPreGenerateJob[] = [];
+
+  for (const npc of open.slice(0, 10)) {
+    jobs.push({
+      type: 'bark',
+      npc: stripRuntimeNpc(npc),
+      request: ambientBarkRequest(npc)
+    });
+  }
+
+  for (const npc of open.slice(0, 6)) {
+    jobs.push({
+      type: 'dialogue',
+      npc: stripRuntimeNpc(npc),
+      request: bumpDialogueRequest(npc),
+      options: {
+        cacheKey: bumpCacheKey(npc),
+        writeMemory: false
+      }
+    });
+  }
+
+  for (const [a, b] of privatePairsFrom(npcs).slice(0, 4)) {
+    jobs.push({
+      type: 'overhear',
+      npc: stripRuntimeNpc(a),
+      request: overhearRequest(a, b, 'private')
+    });
+  }
+
+  for (const [a, b] of openPairsFrom(open).slice(0, 3)) {
+    jobs.push({
+      type: 'overhear',
+      npc: stripRuntimeNpc(a),
+      request: overhearRequest(a, b, 'open')
+    });
+  }
+
+  return jobs.slice(0, 24);
+}
+
+function pregenerationNpcPool(): GeneratedNpc[] {
+  const byId = new Map<string, GeneratedNpc>();
+  const add = (npc: GeneratedNpc) => byId.set(npc.id, npc);
+  for (const town of towns) {
+    for (const npc of world.npcsNear(town.x, town.y, town.radius + 560)) {
+      add(npc);
+    }
+  }
+  for (const landmark of landmarks) {
+    for (const npc of world.npcsNear(landmark.x, landmark.y, 920)) {
+      add(npc);
+    }
+  }
+  for (const npc of world.npcsNear(player.x, player.y, 920)) {
+    add(npc);
+  }
+  return [...byId.values()]
+    .sort((a, b) => distance(a, player) - distance(b, player))
+    .slice(0, 34);
+}
+
+function privatePairsFrom(npcs: GeneratedNpc[]): Array<[GeneratedNpc, GeneratedNpc]> {
+  const groups = new Map<string, GeneratedNpc[]>();
+  for (const npc of npcs) {
+    if (!npc.groupId || npc.conversationPolicy !== 'private') continue;
+    const group = groups.get(npc.groupId) ?? [];
+    group.push(npc);
+    groups.set(npc.groupId, group);
+  }
+  return [...groups.values()]
+    .filter((group) => group.length >= 2)
+    .map((group) => [group[0]!, group[1]!] as [GeneratedNpc, GeneratedNpc]);
+}
+
+function openPairsFrom(npcs: GeneratedNpc[]): Array<[GeneratedNpc, GeneratedNpc]> {
+  const pairs: Array<[GeneratedNpc, GeneratedNpc]> = [];
+  for (let index = 0; index < npcs.length; index += 1) {
+    const a = npcs[index];
+    const b = npcs.slice(index + 1)
+      .filter((candidate) => distance(a!, candidate) < 480)
+      .sort((left, right) => distance(a!, left) - distance(a!, right))[0];
+    if (a && b) {
+      pairs.push([a, b]);
+    }
+  }
+  return pairs;
+}
+
 function frame(now: number): void {
+  recordFrameRate(now);
   const dt = Math.min(0.05, (now - lastFrame) / 1000);
   lastFrame = now;
   update(dt, now);
   draw(now);
+  void maybeWritePerfLogSample(now);
   requestAnimationFrame(frame);
+}
+
+function recordFrameRate(now: number): void {
+  fpsFrames += 1;
+  const elapsed = now - fpsWindowStartedAt;
+  if (elapsed >= 500) {
+    fps = Math.round((fpsFrames * 1000) / elapsed);
+    fpsFrames = 0;
+    fpsWindowStartedAt = now;
+  }
 }
 
 function update(dt: number, now: number): void {
   player.moving = false;
-  if (!dialogueInput.matches(':focus')) {
+  const nearby = world.npcsNear(player.x, player.y, 760);
+  if (!activeNpc && !dialogueInput.matches(':focus')) {
     let dx = 0;
     let dy = 0;
     if (keys.has('arrowleft') || keys.has('a')) dx -= 1;
@@ -228,28 +479,36 @@ function update(dt: number, now: number): void {
       const length = Math.hypot(dx, dy);
       const nx = dx / length;
       const ny = dy / length;
-      const desired = {
+      const desired = clampToMap({
         x: player.x + nx * player.speed * dt,
         y: player.y + ny * player.speed * dt
-      };
-      const clamped = clampToMap(desired, player.radius);
-      if (Math.abs(clamped.x - desired.x) > 0.1 || Math.abs(clamped.y - desired.y) > 0.1) {
+      }, player.radius);
+      const previous = { x: player.x, y: player.y };
+      const resolved = resolvePlayerMove(previous, desired, now, nearby);
+      if (Math.abs(resolved.x - desired.x) > 0.1 || Math.abs(resolved.y - desired.y) > 0.1) {
         wallPulseUntil = now + 420;
       }
-      player.x = clamped.x;
-      player.y = clamped.y;
+      player.x = resolved.x;
+      player.y = resolved.y;
       player.heading = Math.atan2(ny, nx);
-      player.moving = true;
-      maybeAddFootstep(now);
+      player.moving = distance(resolved, previous) > 0.01;
+      if (player.moving) {
+        maybeAddFootstep(now);
+      }
     }
   }
 
   bubbles = bubbles.filter((bubble) => bubble.expiresAt > now);
   footsteps = footsteps.filter((footstep) => footstep.expiresAt > now);
-  const nearby = world.npcsNear(player.x, player.y, 720);
+  if (activeNpc && activeNpcPosition && distance(activeNpcPosition, player) > 260) {
+    closeConversation();
+  }
+  clickableNpcs = nearby
+    .filter((npc) => distance(npcPosition(npc, now, nearby), player) < 170)
+    .sort((a, b) => distance(npcPosition(a, now, nearby), player) - distance(npcPosition(b, now, nearby), player));
   nearestNpc = nearby
-    .filter((npc) => distance(wanderedNpcPosition(npc, now), player) < 165)
-    .sort((a, b) => distance(wanderedNpcPosition(a, now), player) - distance(wanderedNpcPosition(b, now), player))[0];
+    .filter((npc) => distance(npcPosition(npc, now, nearby), player) < 165)
+    .sort((a, b) => distance(npcPosition(a, now, nearby), player) - distance(npcPosition(b, now, nearby), player))[0];
   maybeRequestAmbient(now, nearby);
   renderHud();
 }
@@ -262,6 +521,7 @@ function draw(now: number): void {
   drawWoods(camera);
   drawTownGrounds(camera);
   drawPaths(camera);
+  drawLandmarks(camera);
   drawHouses(camera);
   drawHills(camera);
   drawTrees(camera);
@@ -322,6 +582,158 @@ function maybeAddFootstep(now: number): void {
     expiresAt: now + 950
   });
   lastFootstepAt = now;
+}
+
+function findSafeSpawn(initial: Vec2): Vec2 {
+  const candidates: Vec2[] = [initial];
+  for (const town of towns) {
+    for (const radius of [150, 220, 300, 380, 470]) {
+      for (let step = 0; step < 12; step += 1) {
+        const angle = (Math.PI * 2 * step) / 12 + radius * 0.017;
+        candidates.push(clampToMap({
+          x: town.x + Math.cos(angle) * radius,
+          y: town.y + Math.sin(angle) * radius * 0.62
+        }, 80));
+      }
+    }
+  }
+
+  return candidates.find((candidate) => (
+    isInsideMap(candidate, 80) &&
+    !staticCollisionAt(candidate, playerRadius + 3)
+  )) ?? initial;
+}
+
+function resolvePlayerMove(previous: Vec2, desired: Vec2, now: number, npcs: GeneratedNpc[]): Vec2 {
+  const candidates = [
+    desired,
+    { x: desired.x, y: previous.y },
+    { x: previous.x, y: desired.y }
+  ];
+  for (const candidate of candidates) {
+    const collision = playerCollisionAt(candidate, now, npcs);
+    if (!collision.blocked) return candidate;
+    if (collision.npc) {
+      void triggerBumpReaction(collision.npc, now);
+    }
+  }
+  return previous;
+}
+
+function playerCollisionAt(point: Vec2, now: number, npcs: GeneratedNpc[]): { blocked: boolean; npc?: GeneratedNpc } {
+  if (!isInsideMap(point, player.radius)) return { blocked: true };
+  if (staticCollisionAt(point, player.radius)) return { blocked: true };
+  for (const npc of npcs) {
+    const npcPos = npcPosition(npc, now, npcs);
+    if (distance(point, npcPos) < player.radius + 16) {
+      return { blocked: true, npc };
+    }
+  }
+  return { blocked: false };
+}
+
+function staticCollisionAt(point: Vec2, radius: number): boolean {
+  const houses = world.housesInRect(point.x - 96, point.y - 96, point.x + 96, point.y + 96);
+  if (houses.some((house) => circleRectIntersects(
+    point,
+    radius,
+    { x: house.x - house.width / 2, y: house.y - house.height / 2, width: house.width, height: house.height }
+  ))) return true;
+
+  const nearbyLandmarks = world.landmarksInRect(point.x - 160, point.y - 160, point.x + 160, point.y + 160);
+  if (nearbyLandmarks.some((landmark) => circleRectIntersects(
+    point,
+    radius,
+    { x: landmark.x - landmark.width / 2, y: landmark.y - landmark.height / 2, width: landmark.width, height: landmark.height }
+  ))) return true;
+
+  const trees = world.treesInRect(point.x - 70, point.y - 70, point.x + 70, point.y + 70);
+  return trees.some((tree) => distance(point, treeCollisionCenter(tree)) < radius + treeCollisionRadius(tree));
+}
+
+function npcPosition(npc: GeneratedNpc, now: number, crowd: GeneratedNpc[] = []): Vec2 {
+  if (activeNpc?.id === npc.id && activeNpcPosition) {
+    return activeNpcPosition;
+  }
+  const raw = wanderedNpcPosition(npc, now);
+  if (!canNpcStand(raw, npc, now, crowd)) {
+    return npcFallbackPosition(npc, now, crowd);
+  }
+  return raw;
+}
+
+function npcFallbackPosition(npc: GeneratedNpc, now: number, crowd: GeneratedNpc[]): Vec2 {
+  const offsets: Vec2[] = [
+    { x: 0, y: 0 },
+    { x: 34, y: 0 },
+    { x: -34, y: 0 },
+    { x: 0, y: 34 },
+    { x: 0, y: -34 },
+    { x: 48, y: 28 },
+    { x: -48, y: -28 }
+  ];
+  for (const offset of offsets) {
+    const candidate = { x: npc.x + offset.x, y: npc.y + offset.y };
+    if (canNpcStand(candidate, npc, now, crowd.filter((other) => other.id !== npc.id))) {
+      return candidate;
+    }
+  }
+  return { x: npc.x, y: npc.y };
+}
+
+function canNpcStand(point: Vec2, npc: GeneratedNpc, now: number, crowd: GeneratedNpc[]): boolean {
+  if (!isInsideMap(point, 18)) return false;
+  if (staticCollisionAt(point, 16)) return false;
+  for (const other of crowd) {
+    if (other.id === npc.id) continue;
+    const otherRaw = activeNpc?.id === other.id && activeNpcPosition ? activeNpcPosition : wanderedNpcPosition(other, now);
+    if (distance(point, otherRaw) < 34 && npc.id > other.id) {
+      return false;
+    }
+  }
+  return true;
+}
+
+async function triggerBumpReaction(npc: GeneratedNpc, now: number): Promise<void> {
+  if (!ambientCacheReady) return;
+  const session = npcSession(npc);
+  if (session.bumpInFlight || now - session.lastBumpedAt < 6_000) return;
+  session.lastBumpedAt = now;
+  session.bumpInFlight = true;
+  try {
+    const turn = await ai.dialogue({
+      npc: stripRuntimeNpc(npc),
+      request: bumpDialogueRequest(npc),
+      options: {
+        cacheOnly: true,
+        cacheKey: bumpCacheKey(npc),
+        writeMemory: false
+      }
+    });
+    if (turn.trace?.fallback) {
+      traceLine = 'bump cache miss / waiting for pregeneration';
+      traceDetail = '';
+      return;
+    }
+    applyNpcSessionTurn(npc, turn);
+    const createdAt = performance.now();
+    const pos = npcPosition(npc, createdAt, world.npcsNear(npc.x, npc.y, 360));
+    bubbles.push({
+      id: `${npc.id}:bump:${createdAt}`,
+      npcId: npc.id,
+      x: pos.x,
+      y: pos.y,
+      text: turn.text,
+      startsAt: createdAt,
+      expiresAt: createdAt + 4_200
+    });
+    traceLine = `${turn.trace?.recipeId ?? 'npc.dialogue'} / ${turn.trace?.providerId ?? 'unknown'} / bump reaction`;
+    traceDetail = turn.trace?.rawText.slice(0, 420) ?? '';
+  } catch (error) {
+    traceLine = `bump reaction failed / ${errorMessage(error)}`;
+  } finally {
+    session.bumpInFlight = false;
+  }
 }
 
 function drawWoods(camera: Vec2): void {
@@ -434,6 +846,95 @@ function drawHouses(camera: { x: number; y: number }): void {
   }
 }
 
+function drawLandmarks(camera: Vec2): void {
+  const visible = world.landmarksInRect(camera.x - 160, camera.y - 160, camera.x + cssWidth + 160, camera.y + cssHeight + 160);
+  for (const landmark of visible.sort((a, b) => a.y - b.y)) {
+    drawLandmark(camera, landmark);
+  }
+}
+
+function drawLandmark(camera: Vec2, landmark: Landmark): void {
+  const x = landmark.x - camera.x;
+  const y = landmark.y - camera.y;
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.fillStyle = 'rgba(12, 14, 12, 0.32)';
+  ctx.beginPath();
+  ctx.ellipse(8, landmark.height * 0.34, landmark.width * 0.58, landmark.height * 0.2, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  if (landmark.kind === 'castle') {
+    ctx.fillStyle = '#74766d';
+    roundedRect(-landmark.width / 2, -landmark.height / 2 + 28, landmark.width, landmark.height - 30, 5);
+    ctx.fill();
+    ctx.strokeStyle = '#3c3d37';
+    ctx.lineWidth = 3;
+    ctx.stroke();
+    for (const tx of [-landmark.width / 2 + 18, landmark.width / 2 - 42]) {
+      roundedRect(tx, -landmark.height / 2 - 4, 34, 62, 4);
+      ctx.fill();
+      ctx.stroke();
+    }
+    ctx.fillStyle = '#b7a678';
+    ctx.fillRect(-13, 28, 26, 34);
+  } else if (landmark.kind === 'mill') {
+    ctx.fillStyle = '#7f694c';
+    roundedRect(-42, -34, 84, 74, 5);
+    ctx.fill();
+    ctx.strokeStyle = '#463828';
+    ctx.lineWidth = 3;
+    ctx.stroke();
+    ctx.fillStyle = '#5b4733';
+    triangle(0, -78, 108, 58);
+    ctx.fill();
+    ctx.stroke();
+    ctx.strokeStyle = '#d9b15f';
+    ctx.lineWidth = 4;
+    ctx.beginPath();
+    ctx.arc(53, -18, 28, 0, Math.PI * 2);
+    ctx.moveTo(53, -46);
+    ctx.lineTo(53, 10);
+    ctx.moveTo(25, -18);
+    ctx.lineTo(81, -18);
+    ctx.stroke();
+  } else if (landmark.kind === 'chapel') {
+    ctx.fillStyle = '#6d7f78';
+    roundedRect(-48, -24, 96, 70, 5);
+    ctx.fill();
+    ctx.strokeStyle = '#354642';
+    ctx.lineWidth = 3;
+    ctx.stroke();
+    ctx.fillStyle = '#4d5b57';
+    triangle(0, -68, 118, 52);
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = '#d3c38b';
+    ctx.fillRect(-8, 10, 16, 34);
+    ctx.fillRect(-4, -55, 8, 32);
+    ctx.fillRect(-16, -45, 32, 7);
+  } else {
+    ctx.fillStyle = '#6b574f';
+    roundedRect(-36, -landmark.height / 2, 72, landmark.height, 5);
+    ctx.fill();
+    ctx.strokeStyle = '#342b28';
+    ctx.lineWidth = 3;
+    ctx.stroke();
+    ctx.fillStyle = '#c06a50';
+    triangle(0, -landmark.height / 2 - 42, 88, 58);
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = '#171a15';
+    ctx.fillRect(-10, landmark.height / 2 - 42, 20, 42);
+  }
+
+  ctx.fillStyle = landmark.marker;
+  ctx.beginPath();
+  ctx.arc(landmark.width / 2 - 8, -landmark.height / 2 - 12, 7, 0, Math.PI * 2);
+  ctx.fill();
+  label(landmark.name, 0, -landmark.height / 2 - 30, '#f7d88f');
+  ctx.restore();
+}
+
 function drawHouse(camera: { x: number; y: number }, house: House): void {
   const x = house.x - camera.x;
   const y = house.y - camera.y;
@@ -469,8 +970,11 @@ function drawHouse(camera: { x: number; y: number }, house: House): void {
 }
 
 function drawTrees(camera: { x: number; y: number }): void {
+  const houses = world.housesInRect(camera.x - 120, camera.y - 120, camera.x + cssWidth + 120, camera.y + cssHeight + 120);
+  const landmarksInView = world.landmarksInRect(camera.x - 180, camera.y - 180, camera.x + cssWidth + 180, camera.y + cssHeight + 180);
   const trees = world.treesInRect(camera.x - 80, camera.y - 80, camera.x + cssWidth + 80, camera.y + cssHeight + 80);
   for (const tree of trees) {
+    if (treeOverlapsStructures(tree, houses, landmarksInView)) continue;
     const x = tree.x - camera.x;
     const y = tree.y - camera.y;
     ctx.fillStyle = 'rgba(18, 24, 18, 0.22)';
@@ -519,11 +1023,11 @@ function drawFootsteps(camera: Vec2, now: number): void {
 }
 
 function drawNpcs(camera: { x: number; y: number }, npcs: GeneratedNpc[], now: number): void {
-  for (const npc of npcs.sort((a, b) => wanderedNpcPosition(a, now).y - wanderedNpcPosition(b, now).y)) {
-    const pos = wanderedNpcPosition(npc, now);
+  for (const npc of npcs.sort((a, b) => npcPosition(a, now, npcs).y - npcPosition(b, now, npcs).y)) {
+    const pos = npcPosition(npc, now, npcs);
     const sx = pos.x - camera.x;
     const sy = pos.y - camera.y;
-    const bob = Math.sin(now * 0.004 + npc.x * 0.01) * 1.5;
+    const bob = activeNpc?.id === npc.id ? 0 : Math.sin(now * 0.004 + npc.x * 0.01) * 1.5;
     ctx.fillStyle = 'rgba(18, 20, 17, 0.28)';
     ctx.beginPath();
     ctx.ellipse(sx + 2, sy + 17, 13, 5, 0, 0, Math.PI * 2);
@@ -541,7 +1045,7 @@ function drawNpcs(camera: { x: number; y: number }, npcs: GeneratedNpc[], now: n
       ctx.arc(sx + 8, sy - 28 + bob, 2.5, 0, Math.PI * 2);
       ctx.fill();
     }
-    if (npc === nearestNpc) {
+    if (clickableNpcs.some((candidate) => candidate.id === npc.id)) {
       ctx.strokeStyle = '#f4d36d';
       ctx.lineWidth = 2;
       ctx.beginPath();
@@ -596,7 +1100,7 @@ function drawPlayer(camera: { x: number; y: number }, now: number): void {
 }
 
 function drawBubbles(camera: { x: number; y: number }, now: number, npcs: GeneratedNpc[]): void {
-  const anchors = new Map(npcs.map((npc) => [npc.id, wanderedNpcPosition(npc, now)]));
+  const anchors = new Map(npcs.map((npc) => [npc.id, npcPosition(npc, now, npcs)]));
   for (const bubble of bubbles) {
     if (bubble.startsAt > now) continue;
     const alpha = Math.min(1, (bubble.expiresAt - now) / 650);
@@ -705,8 +1209,23 @@ function drawMinimap(now: number, npcs: GeneratedNpc[]): void {
     minimapCtx.fillText(town.name, point.x, point.y - 9);
   }
 
+  for (const landmark of landmarks) {
+    const point = toMini(landmark);
+    minimapCtx.fillStyle = landmark.marker;
+    minimapCtx.strokeStyle = '#10120f';
+    minimapCtx.lineWidth = 1.5;
+    minimapCtx.beginPath();
+    minimapCtx.moveTo(point.x, point.y - 6);
+    minimapCtx.lineTo(point.x + 6, point.y);
+    minimapCtx.lineTo(point.x, point.y + 6);
+    minimapCtx.lineTo(point.x - 6, point.y);
+    minimapCtx.closePath();
+    minimapCtx.fill();
+    minimapCtx.stroke();
+  }
+
   for (const npc of npcs.slice(0, 24)) {
-    const point = toMini(wanderedNpcPosition(npc, now));
+    const point = toMini(npcPosition(npc, now, npcs));
     minimapCtx.fillStyle = npc.conversationPolicy === 'private' ? '#e3bd65' : '#cdd8b3';
     minimapCtx.fillRect(point.x - 1.5, point.y - 1.5, 3, 3);
   }
@@ -722,35 +1241,224 @@ function drawMinimap(now: number, npcs: GeneratedNpc[]): void {
   minimapCtx.textAlign = 'left';
 }
 
+async function updateDiagnostics(): Promise<void> {
+  try {
+    latestDiagnostics = await window.theWorldDiagnostics?.sample();
+  } catch {
+    latestDiagnostics = undefined;
+  }
+  const rendererMemory = rendererMemoryInfo();
+  const gpuUsage = latestDiagnostics ? diagnosticGpuUsage(latestDiagnostics.gpu) : undefined;
+  const cpuUsage = latestDiagnostics?.cpu.systemPercent;
+  if (typeof gpuUsage === 'number') {
+    diagnosticsHistory = [...diagnosticsHistory, Math.max(0, Math.min(100, gpuUsage))].slice(-72);
+  }
+  if (typeof cpuUsage === 'number') {
+    cpuHistory = [...cpuHistory, Math.max(0, Math.min(100, cpuUsage))].slice(-72);
+  }
+  if (fps > 0) {
+    fpsHistory = [...fpsHistory, Math.max(0, Math.min(100, (fps / 60) * 100))].slice(-72);
+  }
+  diagFpsEl.textContent = fps > 0 ? `${fps} fps` : 'measuring';
+
+  if (!latestDiagnostics) {
+    diagCpuEl.textContent = 'unavailable';
+    diagGpuEl.textContent = 'unavailable';
+    diagGpuMemoryEl.textContent = 'unavailable';
+    diagSystemMemoryEl.textContent = 'unavailable';
+    diagAppMemoryEl.textContent = rendererMemory
+      ? `${formatBytes(rendererMemory.usedJSHeapSize)} renderer heap`
+      : 'renderer heap unavailable';
+    diagGraphLabelEl.textContent = 'GPU trend unavailable';
+    drawDiagnosticsGraph();
+    return;
+  }
+
+  const cpu = latestDiagnostics.cpu;
+  diagCpuEl.textContent = cpu.available
+    ? `${cpu.systemPercent ?? 0}% system / ${cpu.processPercent ?? 0}% main / ${cpu.cores} cores / load ${cpu.loadAverage[0]?.toFixed(2) ?? 'n/a'}`
+    : `unavailable / ${cpu.error ?? cpu.source}`;
+  const gpu = latestDiagnostics.gpu;
+  const gpuParts = [
+    typeof gpuUsage === 'number' ? `${gpuUsage}% device` : 'device n/a',
+    typeof gpu.rendererUtilizationPercent === 'number' ? `${gpu.rendererUtilizationPercent}% render` : '',
+    typeof gpu.tilerUtilizationPercent === 'number' ? `${gpu.tilerUtilizationPercent}% tiler` : ''
+  ].filter(Boolean);
+  diagGpuEl.textContent = gpu.available
+    ? `${gpuParts.join(' / ')}${gpu.model ? ` / ${gpu.model}` : ''}${gpu.cores ? ` / ${gpu.cores} cores` : ''}`
+    : `unavailable / ${gpu.error ?? gpu.source}`;
+  const unifiedCapacity = gpu.unifiedMemoryCapacityBytes ?? latestDiagnostics.systemMemory.totalBytes;
+  diagGpuMemoryEl.textContent = gpu.memoryUsedBytes
+    ? `${formatBytes(gpu.memoryUsedBytes)} used${gpu.memoryAllocatedBytes ? ` / ${formatBytes(gpu.memoryAllocatedBytes)} alloc` : ''} / ${formatBytes(unifiedCapacity)} unified`
+    : 'not reported';
+  diagSystemMemoryEl.textContent = `${formatBytes(latestDiagnostics.systemMemory.usedBytes)} used / ${formatBytes(latestDiagnostics.systemMemory.totalBytes)} total / ${formatBytes(latestDiagnostics.systemMemory.freeBytes)} free`;
+  diagAppMemoryEl.textContent = [
+    `main ${formatBytes(latestDiagnostics.processMemory.rssBytes)} RSS`,
+    rendererMemory ? `renderer ${formatBytes(rendererMemory.usedJSHeapSize)} heap` : ''
+  ].filter(Boolean).join(' / ');
+  diagGraphLabelEl.textContent = [
+    fps > 0 ? `${fps} fps` : 'fps measuring',
+    typeof cpuUsage === 'number' ? `CPU ${cpuUsage}% ${diagnosticTrend(cpuHistory)}` : 'CPU n/a',
+    typeof gpuUsage === 'number' ? `GPU ${gpuUsage}% ${diagnosticTrend(diagnosticsHistory)}` : 'GPU n/a'
+  ].join(' / ');
+  drawDiagnosticsGraph();
+}
+
+async function togglePerfLog(): Promise<void> {
+  if (!window.theWorldDiagnostics) return;
+  try {
+    perfLogStatus = perfLogStatus.active
+      ? await window.theWorldDiagnostics.stopPerfLog()
+      : await window.theWorldDiagnostics.startPerfLog();
+    perfLogLastSampleAt = 0;
+    interactionKey = '';
+    renderHud();
+  } catch (error) {
+    perfLogLineEl.textContent = `Perf log failed / ${errorMessage(error)}`;
+  }
+}
+
+async function maybeWritePerfLogSample(now: number): Promise<void> {
+  if (!perfLogStatus.active || !window.theWorldDiagnostics) return;
+  if (perfLogWriteInFlight) return;
+  if (now - perfLogLastSampleAt < 1_500) return;
+  perfLogLastSampleAt = now;
+  perfLogWriteInFlight = true;
+  try {
+    perfLogStatus = await window.theWorldDiagnostics.appendPerfSample({
+      timestamp: Date.now(),
+      fps,
+      position: {
+        x: Math.round(player.x),
+        y: Math.round(player.y)
+      },
+      region: regionName(player.x, player.y),
+      moving: player.moving,
+      ...(activeNpc ? { activeNpcId: activeNpc.id } : {}),
+      nearbyNpcCount: world.npcsNear(player.x, player.y, 430).length,
+      ambientCacheReady,
+      providerLine,
+      warmupLine,
+      traceLine,
+      ...(latestDiagnostics ? { diagnostics: latestDiagnostics } : {})
+    });
+    renderHud();
+  } catch (error) {
+    perfLogStatus = { active: false, samples: perfLogStatus.samples };
+    perfLogLineEl.textContent = `Perf log failed / ${errorMessage(error)}`;
+  } finally {
+    perfLogWriteInFlight = false;
+  }
+}
+
+function drawDiagnosticsGraph(): void {
+  const width = diagGraphCanvas.width / dpr;
+  const height = diagGraphCanvas.height / dpr;
+  diagGraphCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  diagGraphCtx.clearRect(0, 0, width, height);
+  diagGraphCtx.fillStyle = 'rgba(10, 12, 10, 0.72)';
+  diagGraphCtx.fillRect(0, 0, width, height);
+  diagGraphCtx.strokeStyle = 'rgba(238, 211, 149, 0.12)';
+  diagGraphCtx.lineWidth = 1;
+  for (let y = 0; y <= 4; y += 1) {
+    const yy = (height / 4) * y;
+    diagGraphCtx.beginPath();
+    diagGraphCtx.moveTo(0, yy);
+    diagGraphCtx.lineTo(width, yy);
+    diagGraphCtx.stroke();
+  }
+  if (diagnosticsHistory.length < 2 && cpuHistory.length < 2 && fpsHistory.length < 2) {
+    diagGraphCtx.fillStyle = 'rgba(234, 219, 184, 0.42)';
+    diagGraphCtx.font = '11px Georgia, serif';
+    diagGraphCtx.fillText('waiting for performance samples', 12, height / 2 + 4);
+    return;
+  }
+  drawDiagnosticSeries(fpsHistory, '#f1e5c7', width, height);
+  drawDiagnosticSeries(cpuHistory, '#e3bd65', width, height);
+  drawDiagnosticSeries(diagnosticsHistory, '#8fcf7a', width, height);
+  diagGraphCtx.font = '10px Georgia, serif';
+  diagGraphCtx.fillStyle = '#f1e5c7';
+  diagGraphCtx.fillText('FPS', 10, 14);
+  diagGraphCtx.fillStyle = '#e3bd65';
+  diagGraphCtx.fillText('CPU', 46, 14);
+  diagGraphCtx.fillStyle = '#8fcf7a';
+  diagGraphCtx.fillText('GPU', 84, 14);
+}
+
+function drawDiagnosticSeries(history: number[], color: string, width: number, height: number): void {
+  if (history.length < 2) return;
+  diagGraphCtx.strokeStyle = color;
+  diagGraphCtx.lineWidth = 2;
+  diagGraphCtx.beginPath();
+  history.forEach((value, index) => {
+    const x = (index / Math.max(1, history.length - 1)) * width;
+    const y = height - (value / 100) * height;
+    if (index === 0) diagGraphCtx.moveTo(x, y);
+    else diagGraphCtx.lineTo(x, y);
+  });
+  diagGraphCtx.stroke();
+}
+
+function diagnosticGpuUsage(gpu: DiagnosticsSample['gpu']): number | undefined {
+  return gpu.utilizationPercent ?? gpu.rendererUtilizationPercent ?? gpu.tilerUtilizationPercent;
+}
+
+function diagnosticTrend(history: number[]): string {
+  if (history.length < 3) return 'warming';
+  const current = history[history.length - 1]!;
+  const previous = history[history.length - 3]!;
+  const delta = current - previous;
+  if (Math.abs(delta) < 3) return 'steady';
+  return delta > 0 ? `rising +${Math.round(delta)}%` : `falling ${Math.round(delta)}%`;
+}
+
+function rendererMemoryInfo(): RendererMemoryInfo | undefined {
+  return (performance as Performance & { memory?: RendererMemoryInfo }).memory;
+}
+
+function formatBytes(bytes: number): string {
+  if (!Number.isFinite(bytes)) return 'n/a';
+  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+  let value = bytes;
+  let unit = 0;
+  while (value >= 1024 && unit < units.length - 1) {
+    value /= 1024;
+    unit += 1;
+  }
+  return `${value >= 10 || unit === 0 ? value.toFixed(0) : value.toFixed(1)} ${units[unit]}`;
+}
+
 function renderHud(): void {
   providerEl.textContent = providerLine;
   warmupEl.textContent = warmupLine;
   traceEl.textContent = traceLine;
   traceDetailEl.textContent = traceDetail;
+  traceToggle.textContent = traceOpen ? 'Hide Runtime Trace' : 'Runtime Trace';
+  perfLogToggle.textContent = perfLogStatus.active ? 'Stop Perf Log' : 'Record Perf';
+  perfLogLineEl.textContent = perfLogStatus.active
+    ? `Recording ${perfLogStatus.samples} samples${perfLogStatus.path ? ` / ${perfLogStatus.path}` : ''}`
+    : perfLogStatus.path
+      ? `Stopped ${perfLogStatus.samples} samples / ${perfLogStatus.path}`
+      : 'Perf log idle';
+  devtoolsEl.classList.toggle('collapsed', !traceOpen);
   regionEl.textContent = regionName(player.x, player.y);
   coordEl.textContent = `${Math.round(player.x)}, ${Math.round(player.y)}${performance.now() < wallPulseUntil ? ' / map edge' : ''}`;
 
-  const key = nearestNpc ? nearestNpc.id : 'none';
+  const key = activeNpc ? 'active' : clickableNpcs.map((npc) => `${npc.id}:${npcSession(npc).mood}:${npcSession(npc).willTalkAgain}`).join('|') || 'none';
   if (key !== interactionKey) {
     interactionKey = key;
-    if (nearestNpc && !activeNpc) {
+    if (clickableNpcs.length && !activeNpc) {
       interactionEl.classList.remove('empty');
-      const isPrivate = nearestNpc.conversationPolicy === 'private';
+      const primary = clickableNpcs[0]!;
+      const isPrivate = primary.conversationPolicy === 'private';
+      const session = npcSession(primary);
+      const names = clickableNpcs.slice(0, 3).map((npc) => npc.persona.name).join(', ');
       interactionEl.innerHTML = `
         <div>
-          <strong>${escapeHtml(nearestNpc.persona.name)}</strong>
-          <span>${escapeHtml(nearestNpc.persona.role)} / ${isPrivate ? 'private conversation' : escapeHtml(nearestNpc.persona.mood ?? 'calm')}</span>
+          <strong>${escapeHtml(names)}</strong>
+          <span>${isPrivate ? 'private conversation' : `click a highlighted person / ${escapeHtml(session.mood)}`}</span>
         </div>
-        <button id="talk-button" type="button">${isPrivate ? 'Interrupt' : 'Talk'}</button>
       `;
-      document.querySelector<HTMLButtonElement>('#talk-button')?.addEventListener('click', () => {
-        if (!nearestNpc) return;
-        if (nearestNpc.conversationPolicy === 'private') {
-          void interruptPrivateConversation(nearestNpc);
-          return;
-        }
-        void startConversation(nearestNpc);
-      });
     } else {
       interactionEl.classList.add('empty');
       interactionEl.innerHTML = `<div><strong>${escapeHtml(regionName(player.x, player.y))}</strong><span>open road</span></div>`;
@@ -764,8 +1472,9 @@ function renderDialogue(): void {
     return;
   }
   dialogueEl.classList.remove('hidden');
+  const session = npcSession(activeNpc);
   dialogueNameEl.textContent = activeNpc.persona.name;
-  dialogueRoleEl.textContent = `${activeNpc.persona.role} / ${activeNpc.persona.mood ?? 'calm'}`;
+  dialogueRoleEl.textContent = `${activeNpc.persona.role} / ${session.mood} / attitude ${session.disposition}`;
   dialogueLogEl.innerHTML = conversation.map((line) => `
     <div class="line ${line.kind}">
       <span>${escapeHtml(line.speaker)}</span>
@@ -785,7 +1494,23 @@ async function startConversation(npc: GeneratedNpc): Promise<void> {
     await interruptPrivateConversation(npc);
     return;
   }
+  const session = npcSession(npc);
+  if (!session.willTalkAgain) {
+    const createdAt = performance.now();
+    const pos = npcPosition(npc, createdAt, world.npcsNear(npc.x, npc.y, 360));
+    bubbles.push({
+      id: `${npc.id}:refuses:${createdAt}`,
+      npcId: npc.id,
+      x: pos.x,
+      y: pos.y,
+      text: session.refusalReason ?? 'I said enough.',
+      startsAt: createdAt,
+      expiresAt: createdAt + 4_800
+    });
+    return;
+  }
   activeNpc = npc;
+  activeNpcPosition = npcPosition(npc, performance.now());
   busy = false;
   ended = false;
   conversation = [];
@@ -806,10 +1531,11 @@ async function interruptPrivateConversation(npc: GeneratedNpc): Promise<void> {
         scene: currentScene(),
         player: {
           id: 'player',
-          knownFacts: ['Some travelers speak privately near the road.'],
+          knownFacts: playerKnownFacts(),
           visibleEquipment: ['travel cloak', 'worn boots']
         },
         relationship: 'uninvited interruption',
+        npcState: sessionForRequest(npc),
         recentDialogue: [
           { speaker: 'System', text: `${npc.persona.name} is already speaking privately with companions.` },
           { speaker: 'You', text: 'Can I ask you something?' }
@@ -842,21 +1568,23 @@ async function interruptPrivateConversation(npc: GeneratedNpc): Promise<void> {
 
 async function sendToNpc(text: string): Promise<void> {
   if (!activeNpc) return;
+  const npc = activeNpc;
   busy = true;
   conversation.push({ speaker: 'You', text, kind: 'player' });
   renderDialogue();
   try {
     const turn = await ai.dialogue({
-      npc: stripRuntimeNpc(activeNpc),
+      npc: stripRuntimeNpc(npc),
       request: {
         playerText: text,
         scene: currentScene(),
         player: {
           id: 'player',
-          knownFacts: ['The old mill is avoided after dark.'],
+          knownFacts: playerKnownFacts(),
           visibleEquipment: ['travel cloak', 'worn boots']
         },
         relationship: 'new acquaintance',
+        npcState: sessionForRequest(npc),
         recentDialogue: conversation.slice(-8).map((line) => ({
           speaker: line.speaker,
           text: line.text
@@ -867,8 +1595,10 @@ async function sendToNpc(text: string): Promise<void> {
       const reason = turn.safetyFlags[0]?.message ?? 'Gemma returned invalid or empty output.';
       throw new Error(`Gemma dialogue failed: ${reason}`);
     }
-    applyDialogueTurn(activeNpc, turn);
+    if (activeNpc?.id !== npc.id) return;
+    applyDialogueTurn(npc, turn);
   } catch (error) {
+    if (activeNpc?.id !== npc.id) return;
     const message = errorMessage(error);
     conversation.push({ speaker: 'System', text: message, kind: 'system' });
     traceLine = `dialogue failed / ${message}`;
@@ -880,9 +1610,10 @@ async function sendToNpc(text: string): Promise<void> {
 }
 
 function applyDialogueTurn(npc: GeneratedNpc, turn: DialogueTurn): void {
+  applyNpcSessionTurn(npc, turn);
   conversation.push({ speaker: npc.persona.name, text: turn.text, kind: 'npc' });
   const createdAt = performance.now();
-  const pos = wanderedNpcPosition(npc, createdAt);
+  const pos = npcPosition(npc, createdAt);
   bubbles.push({
     id: `${npc.id}:${createdAt}`,
     npcId: npc.id,
@@ -892,7 +1623,7 @@ function applyDialogueTurn(npc: GeneratedNpc, turn: DialogueTurn): void {
     startsAt: createdAt,
     expiresAt: createdAt + 6_000
   });
-  ended = Boolean(turn.shouldEndConversation);
+  ended = Boolean(turn.shouldEndConversation || !turn.willTalkAgain);
   if (turn.trace) {
     traceLine = `${turn.trace.recipeId} / ${turn.trace.providerId}${turn.trace.model ? ` / ${turn.trace.model}` : ''} / ${Math.round(turn.trace.latencyMs)}ms / ${turn.trace.cache}`;
     traceDetail = [
@@ -905,6 +1636,7 @@ function applyDialogueTurn(npc: GeneratedNpc, turn: DialogueTurn): void {
 
 function closeConversation(): void {
   activeNpc = undefined;
+  activeNpcPosition = undefined;
   busy = false;
   ended = false;
   conversation = [];
@@ -912,8 +1644,48 @@ function closeConversation(): void {
   renderDialogue();
 }
 
+function npcSession(npc: GeneratedNpc): NpcSession {
+  const existing = npcSessions.get(npc.id);
+  if (existing) return existing;
+  const created: NpcSession = {
+    mood: npc.persona.mood ?? 'calm',
+    disposition: 0,
+    willTalkAgain: true,
+    lastBumpedAt: 0,
+    bumpInFlight: false
+  };
+  npcSessions.set(npc.id, created);
+  return created;
+}
+
+function sessionForRequest(npc: GeneratedNpc): NpcSession {
+  const session = npcSession(npc);
+  return {
+    mood: session.mood,
+    disposition: session.disposition,
+    willTalkAgain: session.willTalkAgain,
+    ...(session.refusalReason ? { refusalReason: session.refusalReason } : {}),
+    lastBumpedAt: session.lastBumpedAt,
+    bumpInFlight: session.bumpInFlight
+  };
+}
+
+function applyNpcSessionTurn(npc: GeneratedNpc, turn: DialogueTurn): void {
+  const session = npcSession(npc);
+  session.mood = turn.mood;
+  session.disposition = Math.max(-100, Math.min(100, session.disposition + turn.attitudeDelta));
+  session.willTalkAgain = turn.willTalkAgain;
+  if (turn.refusalReason) {
+    session.refusalReason = turn.refusalReason;
+  } else if (!turn.willTalkAgain) {
+    session.refusalReason = 'I am done talking to you.';
+  }
+  interactionKey = '';
+}
+
 function maybeRequestAmbient(now: number, nearby: GeneratedNpc[]): void {
   if (activeNpc || busy) return;
+  if (!ambientCacheReady) return;
   const close = nearby.filter((npc) => distance(wanderedNpcPosition(npc, now), player) < 390);
   const privateGroup = firstReadyPrivateGroup(close, now);
   if (privateGroup && !overhearInFlight) {
@@ -925,14 +1697,15 @@ function maybeRequestAmbient(now: number, nearby: GeneratedNpc[]): void {
     if (a && b) {
       void ai.overhear({
         npc: stripRuntimeNpc(a),
-        request: {
-          otherNpc: stripRuntimeNpc(b),
-          scene: currentScene(),
-          topic: privateTopicForGroup(a)
+        request: overhearRequest(a, b, 'private'),
+        options: {
+          cacheOnly: true
         }
       }).then((exchange) => {
         if (exchange.trace?.fallback) {
-          throw new Error(exchange.safetyFlags[0]?.message ?? 'Gemma group overhear failed.');
+          traceLine = 'group overhear cache miss / waiting for pregeneration';
+          traceDetail = '';
+          return;
         }
         applyOverheard(exchange, [a, b]);
       })
@@ -953,13 +1726,15 @@ function maybeRequestAmbient(now: number, nearby: GeneratedNpc[]): void {
       npc.lastBarkAt = now;
       void ai.bark({
         npc: stripRuntimeNpc(npc),
-        request: {
-          scene: currentScene(),
-          reason: 'player nearby'
+        request: ambientBarkRequest(npc),
+        options: {
+          cacheOnly: true
         }
       }).then((bark) => {
         if (bark.trace?.fallback) {
-          throw new Error(bark.safetyFlags[0]?.message ?? 'Gemma bark failed.');
+          traceLine = 'bark cache miss / waiting for pregeneration';
+          traceDetail = '';
+          return;
         }
         const pos = wanderedNpcPosition(npc, performance.now());
         const createdAt = performance.now();
@@ -990,14 +1765,15 @@ function maybeRequestAmbient(now: number, nearby: GeneratedNpc[]): void {
       b.lastOverheardAt = now;
       void ai.overhear({
         npc: stripRuntimeNpc(a),
-        request: {
-          otherNpc: stripRuntimeNpc(b),
-          scene: currentScene(),
-          topic: 'road rumors near the old mill'
+        request: overhearRequest(a, b, 'open'),
+        options: {
+          cacheOnly: true
         }
       }).then((exchange) => {
         if (exchange.trace?.fallback) {
-          throw new Error(exchange.safetyFlags[0]?.message ?? 'Gemma overhear failed.');
+          traceLine = 'overhear cache miss / waiting for pregeneration';
+          traceDetail = '';
+          return;
         }
         applyOverheard(exchange, [a, b]);
       })
@@ -1032,13 +1808,63 @@ function firstReadyPrivateGroup(close: GeneratedNpc[], now: number): GeneratedNp
 }
 
 function privateTopicForGroup(npc: GeneratedNpc): string {
+  const landmark = landmarks[npc.wanderSeed % landmarks.length];
   const topics = [
     'a private argument about whether the road moved overnight',
-    'quiet worry about smoke near the old mill',
+    landmark ? `quiet worry that ${landmark.rumor}` : 'quiet worry about smoke near the old mill',
     'whether to trust the next traveler who asks too many questions',
     'a disagreement over which waystone is lying'
   ];
   return topics[npc.wanderSeed % topics.length]!;
+}
+
+function landmarkRumorTopic(npc: GeneratedNpc): string {
+  const nearby = nearestLandmarks(npc, 1800);
+  const landmark = nearby[0] ?? landmarks[npc.wanderSeed % landmarks.length];
+  return landmark
+    ? `${landmark.name}: ${landmark.rumor}. Speak as locals who fear it but do not know the true cause.`
+    : 'road rumors near the old mill';
+}
+
+function ambientBarkRequest(npc: GeneratedNpc) {
+  return {
+    scene: sceneAt(npc),
+    player: {
+      id: 'player',
+      knownFacts: playerKnownFacts(),
+      visibleEquipment: ['travel cloak', 'worn boots']
+    },
+    reason: `ambient local rumor: ${landmarkRumorTopic(npc)}`
+  };
+}
+
+function overhearRequest(a: GeneratedNpc, b: GeneratedNpc, mode: 'private' | 'open') {
+  return {
+    otherNpc: stripRuntimeNpc(b),
+    scene: sceneAt(a),
+    topic: mode === 'private' ? privateTopicForGroup(a) : landmarkRumorTopic(a)
+  };
+}
+
+function bumpDialogueRequest(npc: GeneratedNpc) {
+  return {
+    playerText: 'The player just bumped into you while walking. React briefly as if they were rude.',
+    scene: sceneAt(npc),
+    player: {
+      id: 'player',
+      knownFacts: playerKnownFacts(),
+      visibleEquipment: ['travel cloak', 'worn boots']
+    },
+    relationship: 'the player just collided with you rudely',
+    npcState: sessionForRequest(npc),
+    recentDialogue: [
+      { speaker: 'System', text: 'The player physically bumped into this NPC.' }
+    ]
+  };
+}
+
+function bumpCacheKey(npc: GeneratedNpc): string {
+  return `dialogue:bump:${npc.id}`;
 }
 
 function applyOverheard(exchange: OverheardExchange, npcs: GeneratedNpc[]): void {
@@ -1068,29 +1894,52 @@ function applyOverheard(exchange: OverheardExchange, npcs: GeneratedNpc[]): void
 }
 
 function currentScene() {
+  return sceneAt(player);
+}
+
+function sceneAt(point: Vec2) {
+  const nearbyLandmarks = nearestLandmarks(point, 1350);
   return {
-    location: regionName(player.x, player.y),
-    biome: world.terrainAt(player.x, player.y).biome,
+    location: regionName(point.x, point.y),
+    biome: world.terrainAt(point.x, point.y).biome,
     timeOfDay: 'late afternoon',
     weather: 'thin cloud',
-    nearbyCharacters: world.npcsNear(player.x, player.y, 320).map((npc) => npc.id),
+    nearbyCharacters: world.npcsNear(point.x, point.y, 320).map((npc) => npc.id),
     coordinates: {
-      x: Math.round(player.x),
-      y: Math.round(player.y)
+      x: Math.round(point.x),
+      y: Math.round(point.y)
     },
-    visibleLandmarks: visibleLandmarks()
+    visibleLandmarks: visibleLandmarks(point),
+    landmarkLore: nearbyLandmarks.map((landmark) => `${landmark.name}: ${landmark.lore}`)
   };
 }
 
-function visibleLandmarks(): string[] {
-  const landmarks = ['waystone', 'old mill smoke', 'split pine', 'low ridge'];
-  return landmarks.filter((_, index) => Math.abs(Math.round(player.x / 700) + Math.round(player.y / 700) + index) % 3 === 0);
+function visibleLandmarks(point: Vec2 = player): string[] {
+  const nearby = nearestLandmarks(point, 1350).map((landmark) => landmark.name);
+  const ambient = ['waystone', 'split pine', 'low ridge']
+    .filter((_, index) => Math.abs(Math.round(point.x / 700) + Math.round(point.y / 700) + index) % 3 === 0);
+  return [...nearby, ...ambient].slice(0, 5);
+}
+
+function playerKnownFacts(): string[] {
+  return [
+    'The old mill is avoided after dark.',
+    ...landmarkLoreLines()
+  ];
 }
 
 function stripRuntimeNpc(npc: GeneratedNpc) {
+  const session = npcSession(npc);
   return {
     id: npc.id,
-    persona: npc.persona,
+    persona: {
+      ...npc.persona,
+      mood: session.mood,
+      knows: [
+        ...(npc.persona.knows ?? []),
+        ...landmarkLoreLines()
+      ]
+    },
     memory: npc.memory
   };
 }
@@ -1159,6 +2008,34 @@ function wrapText(text: string, maxChars: number): string[] {
   return lines;
 }
 
+function treeCollisionCenter(tree: Tree): Vec2 {
+  return { x: tree.x, y: tree.y + tree.size * 0.26 };
+}
+
+function treeCollisionRadius(tree: Tree): number {
+  return Math.max(10, tree.size * 0.62);
+}
+
+function treeOverlapsStructures(tree: Tree, houses: House[], landmarksInView: Landmark[]): boolean {
+  const center = treeCollisionCenter(tree);
+  const radius = treeCollisionRadius(tree) + 10;
+  return houses.some((house) => circleRectIntersects(
+    center,
+    radius,
+    { x: house.x - house.width / 2 - 10, y: house.y - house.height / 2 - 10, width: house.width + 20, height: house.height + 20 }
+  )) || landmarksInView.some((landmark) => circleRectIntersects(
+    center,
+    radius,
+    { x: landmark.x - landmark.width / 2 - 18, y: landmark.y - landmark.height / 2 - 18, width: landmark.width + 36, height: landmark.height + 36 }
+  ));
+}
+
+function circleRectIntersects(circle: Vec2, radius: number, rect: { x: number; y: number; width: number; height: number }): boolean {
+  const nearestX = Math.max(rect.x, Math.min(circle.x, rect.x + rect.width));
+  const nearestY = Math.max(rect.y, Math.min(circle.y, rect.y + rect.height));
+  return distance(circle, { x: nearestX, y: nearestY }) < radius;
+}
+
 function resize(): void {
   dpr = Math.max(1, Math.min(2, window.devicePixelRatio || 1));
   cssWidth = window.innerWidth;
@@ -1172,6 +2049,12 @@ function resize(): void {
   const minimapHeight = Math.max(132, minimapRect.height || 152);
   minimapCanvas.width = Math.floor(minimapWidth * dpr);
   minimapCanvas.height = Math.floor(minimapHeight * dpr);
+  const graphRect = diagGraphCanvas.getBoundingClientRect();
+  const graphWidth = Math.max(260, graphRect.width || 340);
+  const graphHeight = Math.max(82, graphRect.height || 96);
+  diagGraphCanvas.width = Math.floor(graphWidth * dpr);
+  diagGraphCanvas.height = Math.floor(graphHeight * dpr);
+  drawDiagnosticsGraph();
 }
 
 function escapeHtml(value: string): string {

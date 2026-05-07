@@ -1,4 +1,5 @@
 const emotions = new Set(['neutral', 'warm', 'angry', 'afraid', 'suspicious', 'curious', 'amused', 'sad']);
+const moods = new Set(['calm', 'curious', 'wary', 'busy', 'lonely', 'cheerful', 'afraid', 'angry', 'offended', 'hostile']);
 const animations = new Set(['idle', 'point', 'laugh', 'lookAway', 'shrug', 'wave', 'thinking']);
 const scopes = new Set(['npc', 'player', 'world', 'scene']);
 const safetyLevels = new Set(['info', 'warn', 'block']);
@@ -23,6 +24,10 @@ function repairDialogue(value: Record<string, unknown>): Record<string, unknown>
   return {
     text: stringOr(value.text, '...'),
     emotion: enumOr(value.emotion, emotions, 'neutral'),
+    mood: enumOr(value.mood, moods, moodFromEmotion(value.emotion)),
+    attitudeDelta: clampRange(typeof value.attitudeDelta === 'number' ? value.attitudeDelta : 0, -30, 30),
+    willTalkAgain: typeof value.willTalkAgain === 'boolean' ? value.willTalkAgain : true,
+    ...(typeof value.refusalReason === 'string' && value.refusalReason.trim() ? { refusalReason: value.refusalReason.trim().slice(0, 180) } : {}),
     ...(animations.has(String(value.animationHint)) ? { animationHint: value.animationHint } : {}),
     events: repairEvents(value.events),
     memoryWrites: repairMemoryWrites(value.memoryWrites),
@@ -145,6 +150,19 @@ function enumOr(value: unknown, allowed: Set<string>, fallback: string): string 
 
 function clamp(value: number): number {
   return Math.max(0, Math.min(1, value));
+}
+
+function clampRange(value: number, min: number, max: number): number {
+  return Math.max(min, Math.min(max, value));
+}
+
+function moodFromEmotion(value: unknown): string {
+  if (value === 'angry') return 'angry';
+  if (value === 'afraid') return 'afraid';
+  if (value === 'suspicious') return 'wary';
+  if (value === 'curious') return 'curious';
+  if (value === 'warm' || value === 'amused') return 'cheerful';
+  return 'calm';
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

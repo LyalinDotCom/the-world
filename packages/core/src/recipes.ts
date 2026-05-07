@@ -33,6 +33,9 @@ export const npcDialogueRecipe: RecipeDefinition<NpcDialogueRecipeInput, Dialogu
     return {
       text: isGoodbye ? `${name} nods. "Safe roads."` : `"I need a moment to gather my thoughts," ${name} says.`,
       emotion: isGoodbye ? 'warm' : 'neutral',
+      mood: isGoodbye ? 'calm' : input.npc.persona.mood ?? 'calm',
+      attitudeDelta: isGoodbye ? 0 : -2,
+      willTalkAgain: true,
       animationHint: isGoodbye ? 'wave' : 'thinking',
       events: [
         { type: 'debug.warning', message: `Fallback dialogue used: ${reason}` }
@@ -58,8 +61,8 @@ export const npcBarkRecipe: RecipeDefinition<NpcBarkRecipeInput, BarkTurn> = {
   description: 'Generate a short ambient NPC bark.',
   schema: BarkTurnSchema,
   jsonSchema: barkTurnJsonSchema,
-  temperature: 0.9,
-  maxTokens: 80,
+  temperature: 0.45,
+  maxTokens: 70,
   compile(input, ctx) {
     return compileBarkPrompt(input.npc, ctx, JSON.stringify(input.request.scene), input.request.reason);
   },
@@ -79,7 +82,7 @@ export const npcOverhearRecipe: RecipeDefinition<NpcOverhearRecipeInput, Overhea
   description: 'Generate a short NPC-to-NPC overheard exchange.',
   schema: OverheardExchangeSchema,
   jsonSchema: overheardExchangeJsonSchema,
-  temperature: 0.85,
+  temperature: 0.6,
   maxTokens: 260,
   compile(input, ctx) {
     return compileOverhearPrompt(input.npc, input.request, ctx);

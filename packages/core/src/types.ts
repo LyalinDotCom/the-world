@@ -72,6 +72,11 @@ export interface GameAIRuntimeConfig {
   maxLatencyMs?: number;
   cache?: 'none' | 'session';
   debug?: boolean;
+  pregeneration?: {
+    enabled?: boolean;
+    cacheOnlyRuntimeRecipes?: string[];
+    maxConcurrency?: number;
+  };
 }
 
 export interface GameAIPolicies {
@@ -89,7 +94,7 @@ export interface GameAIConfig {
   policies?: GameAIPolicies;
 }
 
-export type NpcMood = 'calm' | 'curious' | 'wary' | 'busy' | 'lonely' | 'cheerful' | 'afraid' | 'angry';
+export type NpcMood = 'calm' | 'curious' | 'wary' | 'busy' | 'lonely' | 'cheerful' | 'afraid' | 'angry' | 'offended' | 'hostile';
 export type DialogueEmotion = 'neutral' | 'warm' | 'angry' | 'afraid' | 'suspicious' | 'curious' | 'amused' | 'sad';
 export type AnimationHint = 'idle' | 'point' | 'laugh' | 'lookAway' | 'shrug' | 'wave' | 'thinking';
 
@@ -142,6 +147,12 @@ export interface DialogueRequest {
   player?: PlayerContext;
   relationship?: string;
   conversationId?: string;
+  npcState?: {
+    mood: NpcMood;
+    disposition: number;
+    willTalkAgain: boolean;
+    refusalReason?: string;
+  };
   recentDialogue?: Array<{
     speaker: string;
     text: string;
@@ -200,6 +211,10 @@ export interface DebugTrace {
 export interface DialogueTurn {
   text: string;
   emotion: DialogueEmotion;
+  mood: NpcMood;
+  attitudeDelta: number;
+  willTalkAgain: boolean;
+  refusalReason?: string;
   animationHint?: AnimationHint;
   events: GameAIEvent[];
   memoryWrites: MemoryWrite[];
@@ -248,4 +263,13 @@ export interface RunRecipeOptions {
   timeoutMs?: number;
   cacheKey?: string;
   bypassCache?: boolean;
+  cacheMode?: 'read-through' | 'cache-only' | 'refresh';
+}
+
+export interface NpcGenerationOptions {
+  timeoutMs?: number;
+  cacheKey?: string;
+  cacheOnly?: boolean;
+  refresh?: boolean;
+  writeMemory?: boolean;
 }

@@ -83,4 +83,54 @@ describe('GameAI runtime', () => {
     expect(turn.trace?.fallback).not.toBe(true);
     expect(turn.trace?.repaired).toBe(true);
   });
+
+  it('supports pre-generated cache-only runtime recipes', async () => {
+    let generateCount = 0;
+    const provider: GameAIProvider = {
+      id: 'test-provider',
+      async generate() {
+        generateCount += 1;
+        return {
+          text: JSON.stringify({
+            text: 'Keep to the road.',
+            emotion: 'neutral',
+            safetyFlags: []
+          })
+        };
+      }
+    };
+    const ai = createGameAI({
+      provider,
+      world: { id: 'test-world' },
+      runtime: {
+        cache: 'session',
+        pregeneration: {
+          enabled: true,
+          cacheOnlyRuntimeRecipes: ['npc.bark']
+        }
+      }
+    });
+    const npc = ai.npc({
+      id: 'npc.guard.elda',
+      persona: { name: 'Elda', role: 'road guard' }
+    });
+    const request = {
+      scene: { location: 'Road' },
+      reason: 'player nearby'
+    };
+
+    const miss = await npc.bark(request, { cacheKey: 'bark:test' });
+    expect(miss.trace?.fallback).toBe(true);
+    expect(generateCount).toBe(0);
+
+    const generated = await npc.bark(request, { cacheKey: 'bark:test', refresh: true });
+    expect(generated.text).toBe('Keep to the road.');
+    expect(generated.trace?.cache).toBe('miss');
+    expect(generateCount).toBe(1);
+
+    const hit = await npc.bark(request, { cacheKey: 'bark:test' });
+    expect(hit.text).toBe('Keep to the road.');
+    expect(hit.trace?.cache).toBe('hit');
+    expect(generateCount).toBe(1);
+  });
 });

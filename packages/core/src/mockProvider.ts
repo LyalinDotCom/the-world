@@ -44,17 +44,28 @@ export class MockGameAIProvider implements GameAIProvider {
     const mood = capture(prompt, /Mood: (.+)/) ?? 'calm';
     const playerText = capture(prompt, /Player says: ([\s\S]+)/)?.split('\n')[0]?.trim() ?? '';
     const goodbye = /bye|goodbye|farewell|later|i should go/i.test(playerText);
+    const insult = /stupid|idiot|shut up|hate you|useless|worthless|fool/i.test(playerText);
+    const bump = /bumped into you|ran into you|collided/i.test(playerText);
     const question = playerText.endsWith('?') || /why|what|where|who|how/i.test(playerText);
-    const emotion = goodbye ? 'warm' : mood.includes('wary') ? 'suspicious' : question ? 'curious' : 'neutral';
+    const emotion = insult || bump ? 'angry' : goodbye ? 'warm' : mood.includes('wary') ? 'suspicious' : question ? 'curious' : 'neutral';
+    const nextMood = insult ? 'offended' : bump ? 'angry' : goodbye ? 'calm' : emotion === 'curious' ? 'curious' : mood.includes('wary') ? 'wary' : 'calm';
     const line = goodbye
       ? `"Safe roads. If the paths start whispering, do not answer first."`
-      : question
+      : insult
+        ? `"Enough. Take that tongue somewhere else," ${name} says.`
+        : bump
+          ? `"Mind your boots," ${name} snaps.`
+          : question
         ? `"I know enough to be careful," ${name} says. "The land changes, but tracks and debts always tell the truth."`
         : `"Around here, even a ${role} learns to listen before speaking."`;
 
     return JSON.stringify({
       text: line,
       emotion,
+      mood: nextMood,
+      attitudeDelta: insult ? -30 : bump ? -8 : goodbye ? 0 : question ? 2 : 0,
+      willTalkAgain: !insult,
+      ...(insult ? { refusalReason: 'The player was insulting.' } : {}),
       animationHint: goodbye ? 'wave' : question ? 'thinking' : 'idle',
       events: [
         { type: 'dialogue.say', npcId: String(request.metadata?.npcId ?? 'npc.unknown'), text: line },
@@ -69,7 +80,7 @@ export class MockGameAIProvider implements GameAIProvider {
         }
       ],
       safetyFlags: [],
-      shouldEndConversation: goodbye
+      shouldEndConversation: goodbye || insult
     });
   }
 

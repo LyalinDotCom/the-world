@@ -12,6 +12,7 @@ The long-term goal is to prove that local Gemma-class models can bring a procedu
 - Some NPCs are in groups, already talking, and refuse interruption.
 - Ambient barks and overheard conversations should reveal mood, rumors, and place without becoming exposition dumps.
 - The map should feel authored enough to navigate: fixed bounds, named towns, named woods, roads, walking spaces, and a minimap.
+- Diagnostics should make the local model/runtime cost visible, including model status, latency/fallback traces, FPS, CPU load, GPU load, memory pressure, and optional play-session perf logs.
 - Generated content must stay game-safe: typed outputs, validation, repair, policy checks, and no direct authoritative state mutation.
 
 ## Non-Negotiables
@@ -21,12 +22,13 @@ The long-term goal is to prove that local Gemma-class models can bring a procedu
 - Keep the Electron main process as the owner of model access. The renderer should use a narrow IPC bridge.
 - Prefer schema-bound results and typed events over parsing prose.
 - Do not let the model grant rewards, mutate inventory, complete quests, or invent major canon facts directly.
+- Movement-adjacent ambient life should be cache-first or pre-generated. Do not let walking around spam local Gemma calls.
 
 ## Current Demo Priorities
 
 1. Make conversations genuinely responsive to recent dialogue.
 2. Make the world feel lived in: wandering NPCs, houses, groups, private conversations, barks, and overheard exchanges.
-3. Make runtime state visible: provider, model, bridge status, latency/fallback/repair trace.
+3. Make runtime state visible: provider, model, bridge status, latency/fallback/repair trace, FPS, CPU usage, GPU usage, memory capacity, and optional telemetry logs.
 4. Keep the local model warm and use low-latency prompts suitable for short game interactions.
 5. Keep navigation understandable: spawn near a town, show the player on a minimap, and block leaving the current prototype map cleanly.
 
