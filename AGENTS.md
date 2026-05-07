@@ -11,6 +11,7 @@ The long-term goal is to prove that local Gemma-class models can bring a procedu
 - Some NPCs are approachable and can have natural two-way conversations.
 - Some NPCs are in groups, already talking, and refuse interruption.
 - Ambient barks and overheard conversations should reveal mood, rumors, and place without becoming exposition dumps.
+- Ambient flow is a game system: cap visible ambient speakers, rotate NPC pairs/topics with cooldowns, prefer short NPC-to-NPC meetups over random solo chatter, and keep announcements rare.
 - The map should feel authored enough to navigate: fixed bounds, named towns, named woods, roads, walking spaces, and a minimap.
 - Diagnostics should make the local model/runtime cost visible, including model status, latency/fallback traces, FPS, CPU load, GPU load, memory pressure, and optional play-session perf logs.
 - Generated content must stay game-safe: typed outputs, validation, repair, policy checks, and no direct authoritative state mutation.
@@ -28,9 +29,10 @@ The long-term goal is to prove that local Gemma-class models can bring a procedu
 
 1. Make conversations genuinely responsive to recent dialogue.
 2. Make the world feel lived in: wandering NPCs, houses, groups, private conversations, barks, and overheard exchanges.
-3. Make runtime state visible: provider, model, bridge status, latency/fallback/repair trace, FPS, CPU usage, GPU usage, memory capacity, and optional telemetry logs.
-4. Keep the local model warm and use low-latency prompts suitable for short game interactions.
-5. Keep navigation understandable: spawn near a town, show the player on a minimap, and block leaving the current prototype map cleanly.
+3. Keep ambient life readable and performant: no popup spam, cache-first speech, staged meetups, visible FPS, and diagnostics for flow control.
+4. Make runtime state visible: provider, model, bridge status, latency/fallback/repair trace, FPS, CPU usage, GPU usage, memory capacity, and optional telemetry logs.
+5. Keep the local model warm and use low-latency prompts suitable for short game interactions.
+6. Keep navigation understandable: spawn near a town, show the player on a minimap, and block leaving the current prototype map cleanly.
 
 ## Good Next Steps
 

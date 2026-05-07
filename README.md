@@ -17,6 +17,7 @@ This repo shows a small but working slice of that idea: a game developer defines
 - Model warmup on startup so the first real conversation is less likely to pay the full local model-load cost.
 - A fixed large 2D map with three towns, named woods, roads, houses, special landmarks, generated NPCs, click-to-talk interaction, free-text replies, and a Goodbye flow.
 - Small NPC groups that carry on private overheard conversations and refuse interruption.
+- A game-level ambient stage manager that caps visible ambient speakers, rotates pairs/topics, moves NPCs together before short exchanges, and reserves single barks for rare announcements.
 - A minimap, random town-adjacent spawn, invisible map walls, collision, and walking effects so the demo feels like a playable place instead of a chat panel.
 - A collapsible diagnostics panel that surfaces provider/model/cache/fallback behavior plus live FPS, CPU, GPU, and memory telemetry.
 - Optional JSONL performance recording so a play session can be analyzed by location, movement, interactions, FPS, CPU, GPU, and memory.
@@ -97,8 +98,8 @@ If you open the renderer directly in a browser, it shows a Gemma bridge error. T
 - Some NPCs are in private groups. You can listen nearby, but interrupting them gets a refusal instead of joining their conversation.
 - Type natural language into the dialogue box.
 - Click `Goodbye` to let the NPC end the conversation.
-- Stay near NPCs to see ambient barks and overheard exchanges.
-- Open `Runtime Trace` when needed for model, cache, fallback, raw output, FPS, CPU usage, GPU usage, GPU memory, machine memory, app memory, and a live trend graph.
+- Stay near NPCs to see paced overheard exchanges. Most ambient life is NPCs approaching each other for short conversations; occasional single-NPC lines behave like town announcements.
+- Open `Diagnostics` when needed for model, cache, fallback, raw output, CPU usage, GPU usage, GPU memory, machine memory, app memory, ambient flow, and a live trend graph. FPS stays visible in the top HUD.
 - Click `Record Perf` before playing a route to write a JSONL telemetry log under the app's user data directory.
 
 ## Verification
@@ -131,7 +132,7 @@ Long-term project direction is captured in `AGENTS.md` so future sessions keep t
 
 Implemented now:
 
-- Procedural terrain, roads, hills, trees, and generated NPCs.
+- Procedural terrain, roads, trees, and generated NPCs.
 - A fixed large map with Rivergate, Mosswake, Cindervale, Hollow Pines, Mothwood, and Wolfmoon Wood.
 - Houses, sheds, and wayhouses clustered into towns and along roads.
 - Marked special landmarks: The Old Mill, The Abandoned Castle, The Sunken Chapel, and Black Bell Tower.
@@ -141,7 +142,7 @@ Implemented now:
 - NPC click-to-talk interaction with two-way text.
 - NPC mood/disposition session state, including Gemma-controlled refusal and conversation ending.
 - NPC-controlled conversation ending through `shouldEndConversation`.
-- Ambient barks, overheard two-NPC exchanges, and private group conversations.
+- Ambient stage management: no more than two visible ambient speakers, slower fade-in/fade-out bubbles, pair/topic cooldowns, rotating NPC meetups, rare announcements, overheard two-NPC exchanges, and private group conversations.
 - Local Ollama/Gemma structured generation.
 - Warmup API and startup warmup.
 - Schema validation, repair, and fallback.

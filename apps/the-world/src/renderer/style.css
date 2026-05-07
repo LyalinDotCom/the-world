@@ -122,6 +122,17 @@ button:disabled {
   min-width: 0;
 }
 
+.fps-pill {
+  display: inline-flex;
+  min-width: 62px;
+  justify-content: center;
+  padding: 3px 8px;
+  border: 1px solid rgba(244, 211, 109, 0.28);
+  border-radius: 999px;
+  color: #f1e5c7 !important;
+  background: rgba(12, 15, 12, 0.44);
+}
+
 .interaction {
   position: absolute;
   left: 16px;
@@ -208,6 +219,17 @@ button:disabled {
   font-size: 12px;
 }
 
+.graph-toggle {
+  width: 100%;
+  min-height: 28px;
+  margin-top: 8px;
+  padding: 0 10px;
+  border-color: rgba(111, 143, 84, 0.48);
+  color: #cfe1bd;
+  background: rgba(34, 45, 32, 0.74);
+  font-size: 12px;
+}
+
 .perf-log-line {
   margin-top: 7px;
   color: #bfcdaa;
@@ -238,6 +260,33 @@ button:disabled {
   font-weight: 700;
   text-transform: uppercase;
   margin-bottom: 8px;
+}
+
+.devtools-tabs {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.devtools-tab {
+  min-height: 30px;
+  padding: 0 8px;
+  border-color: rgba(238, 211, 149, 0.18);
+  color: #c8d3b3;
+  background: rgba(42, 51, 38, 0.66);
+  font-size: 12px;
+}
+
+.devtools-tab.active {
+  border-color: rgba(244, 211, 109, 0.72);
+  color: #f4d36d;
+  background: rgba(75, 88, 61, 0.9);
+}
+
+.devtools-panel.hidden,
+.diag-graph-wrap.hidden {
+  display: none;
 }
 
 .devrow {

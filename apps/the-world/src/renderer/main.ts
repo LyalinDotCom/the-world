@@ -34,6 +34,7 @@ interface Bubble {
   text: string;
   startsAt: number;
   expiresAt: number;
+  kind: 'ambient' | 'dialogue' | 'reaction';
 }
 
 interface Footstep {
@@ -65,6 +66,15 @@ interface NpcSession {
   lastBumpedAt: number;
   bumpInFlight: boolean;
 }
+
+interface AmbientMeetup {
+  npcIds: [string, string];
+  center: Vec2;
+  startedAt: number;
+  expiresAt: number;
+}
+
+type DiagnosticsTab = 'trace' | 'machine' | 'perf';
 
 const canvasElement = document.querySelector<HTMLCanvasElement>('#world');
 const hudElement = document.querySelector<HTMLDivElement>('#hud');
@@ -107,6 +117,8 @@ let overhearInFlight = false;
 let groupRefusalInFlight = false;
 let ambientCacheReady = false;
 let ambientCacheInFlight = false;
+let nextAmbientAt = 0;
+let lastAmbientAnnouncementAt = 0;
 let providerLine = 'AI runtime connecting...';
 let providerBaseLine = providerLine;
 let warmupLine = 'warmup pending';
@@ -114,6 +126,10 @@ let traceLine = 'No generation yet.';
 let traceDetail = '';
 let conversation: LogLine[] = [];
 let bubbles: Bubble[] = [];
+let ambientMeetups: AmbientMeetup[] = [];
+const ambientSpeakerCooldowns = new Map<string, number>();
+const ambientPairCooldowns = new Map<string, number>();
+const ambientTopicCooldowns = new Map<string, number>();
 let footsteps: Footstep[] = [];
 let lastFootstepAt = 0;
 let wallPulseUntil = 0;
@@ -132,6 +148,9 @@ let fpsWindowStartedAt = performance.now();
 let perfLogStatus: PerfLogStatus = { active: false, samples: 0 };
 let perfLogLastSampleAt = 0;
 let perfLogWriteInFlight = false;
+let diagnosticsTab: DiagnosticsTab = 'machine';
+let diagnosticsGraphOpen = true;
+const maxAmbientSpeakers = 2;
 
 hud.innerHTML = `
   <div class="topbar">
@@ -140,6 +159,7 @@ hud.innerHTML = `
       <span id="provider-line"></span>
     </div>
     <div class="meters">
+      <span id="fps-pill" class="fps-pill">-- fps</span>
       <span id="region-line"></span>
       <span id="coord-line"></span>
     </div>
@@ -151,24 +171,37 @@ hud.innerHTML = `
     <button id="trace-toggle" class="trace-toggle" type="button">Runtime Trace</button>
   </aside>
   <aside id="devtools" class="devtools collapsed">
-    <header>Runtime Trace</header>
-    <div id="warmup-line" class="devrow"></div>
-    <div id="trace-line" class="devrow"></div>
-    <pre id="trace-detail"></pre>
-    <header>Machine Diagnostics</header>
-    <div class="diagnostics-grid">
-      <div><span>Frame Rate</span><strong id="diag-fps">pending</strong></div>
-      <div><span>CPU Load</span><strong id="diag-cpu">pending</strong></div>
-      <div><span>GPU Load</span><strong id="diag-gpu">pending</strong></div>
-      <div><span>GPU Memory</span><strong id="diag-gpu-memory">pending</strong></div>
-      <div><span>Machine Memory</span><strong id="diag-system-memory">pending</strong></div>
-      <div><span>App Memory</span><strong id="diag-app-memory">pending</strong></div>
+    <div class="devtools-tabs" role="tablist" aria-label="Runtime diagnostics">
+      <button id="tab-machine" class="devtools-tab active" type="button">Machine</button>
+      <button id="tab-trace" class="devtools-tab" type="button">Trace</button>
+      <button id="tab-perf" class="devtools-tab" type="button">Perf</button>
     </div>
-    <button id="perf-log-toggle" class="perf-log-toggle" type="button">Record Perf</button>
-    <div id="perf-log-line" class="devrow perf-log-line">Perf log idle</div>
-    <div class="diag-graph-wrap">
-      <canvas id="diag-graph" aria-label="FPS CPU GPU graph"></canvas>
-      <div id="diag-graph-label" class="diag-graph-label">Perf trend pending</div>
+    <div id="panel-machine" class="devtools-panel">
+      <header>Machine Diagnostics</header>
+      <div class="diagnostics-grid">
+        <div><span>CPU Load</span><strong id="diag-cpu">pending</strong></div>
+        <div><span>GPU Load</span><strong id="diag-gpu">pending</strong></div>
+        <div><span>GPU Memory</span><strong id="diag-gpu-memory">pending</strong></div>
+        <div><span>Machine Memory</span><strong id="diag-system-memory">pending</strong></div>
+        <div><span>App Memory</span><strong id="diag-app-memory">pending</strong></div>
+        <div><span>Ambient Flow</span><strong id="diag-flow">pending</strong></div>
+      </div>
+    </div>
+    <div id="panel-trace" class="devtools-panel hidden">
+      <header>Runtime Trace</header>
+      <div id="warmup-line" class="devrow"></div>
+      <div id="trace-line" class="devrow"></div>
+      <pre id="trace-detail"></pre>
+    </div>
+    <div id="panel-perf" class="devtools-panel hidden">
+      <header>Performance Capture</header>
+      <button id="perf-log-toggle" class="perf-log-toggle" type="button">Record Perf</button>
+      <div id="perf-log-line" class="devrow perf-log-line">Perf log idle</div>
+      <button id="graph-toggle" class="graph-toggle" type="button">Hide Graph</button>
+      <div id="diag-graph-wrap" class="diag-graph-wrap">
+        <canvas id="diag-graph" aria-label="FPS CPU GPU graph"></canvas>
+        <div id="diag-graph-label" class="diag-graph-label">Perf trend pending</div>
+      </div>
     </div>
   </aside>
   <section id="dialogue" class="dialogue hidden">
@@ -192,16 +225,19 @@ const providerEl = document.querySelector<HTMLSpanElement>('#provider-line')!;
 const warmupEl = document.querySelector<HTMLDivElement>('#warmup-line')!;
 const traceEl = document.querySelector<HTMLDivElement>('#trace-line')!;
 const traceDetailEl = document.querySelector<HTMLPreElement>('#trace-detail')!;
-const diagFpsEl = document.querySelector<HTMLElement>('#diag-fps')!;
+const fpsPillEl = document.querySelector<HTMLElement>('#fps-pill')!;
 const diagCpuEl = document.querySelector<HTMLElement>('#diag-cpu')!;
 const diagGpuEl = document.querySelector<HTMLElement>('#diag-gpu')!;
 const diagGpuMemoryEl = document.querySelector<HTMLElement>('#diag-gpu-memory')!;
 const diagSystemMemoryEl = document.querySelector<HTMLElement>('#diag-system-memory')!;
 const diagAppMemoryEl = document.querySelector<HTMLElement>('#diag-app-memory')!;
+const diagFlowEl = document.querySelector<HTMLElement>('#diag-flow')!;
 const diagGraphCanvas = document.querySelector<HTMLCanvasElement>('#diag-graph')!;
 const diagGraphLabelEl = document.querySelector<HTMLElement>('#diag-graph-label')!;
+const diagGraphWrapEl = document.querySelector<HTMLElement>('#diag-graph-wrap')!;
 const perfLogToggle = document.querySelector<HTMLButtonElement>('#perf-log-toggle')!;
 const perfLogLineEl = document.querySelector<HTMLElement>('#perf-log-line')!;
+const graphToggle = document.querySelector<HTMLButtonElement>('#graph-toggle')!;
 const diagGraphContext = diagGraphCanvas.getContext('2d');
 if (!diagGraphContext) {
   throw new Error('Diagnostics graph canvas context is unavailable.');
@@ -218,6 +254,12 @@ if (!minimapContext) {
 const minimapCtx: CanvasRenderingContext2D = minimapContext;
 const traceToggle = document.querySelector<HTMLButtonElement>('#trace-toggle')!;
 const devtoolsEl = document.querySelector<HTMLElement>('#devtools')!;
+const tabMachine = document.querySelector<HTMLButtonElement>('#tab-machine')!;
+const tabTrace = document.querySelector<HTMLButtonElement>('#tab-trace')!;
+const tabPerf = document.querySelector<HTMLButtonElement>('#tab-perf')!;
+const panelMachine = document.querySelector<HTMLElement>('#panel-machine')!;
+const panelTrace = document.querySelector<HTMLElement>('#panel-trace')!;
+const panelPerf = document.querySelector<HTMLElement>('#panel-perf')!;
 const dialogueEl = document.querySelector<HTMLElement>('#dialogue')!;
 const dialogueNameEl = document.querySelector<HTMLElement>('#dialogue-name')!;
 const dialogueRoleEl = document.querySelector<HTMLElement>('#dialogue-role')!;
@@ -274,6 +316,22 @@ dialogueGoodbye.addEventListener('click', () => {
 dialogueClose.addEventListener('click', closeConversation);
 traceToggle.addEventListener('click', () => {
   traceOpen = !traceOpen;
+  renderHud();
+});
+tabMachine.addEventListener('click', () => {
+  diagnosticsTab = 'machine';
+  renderHud();
+});
+tabTrace.addEventListener('click', () => {
+  diagnosticsTab = 'trace';
+  renderHud();
+});
+tabPerf.addEventListener('click', () => {
+  diagnosticsTab = 'perf';
+  renderHud();
+});
+graphToggle.addEventListener('click', () => {
+  diagnosticsGraphOpen = !diagnosticsGraphOpen;
   renderHud();
 });
 perfLogToggle.addEventListener('click', () => {
@@ -468,6 +526,7 @@ function recordFrameRate(now: number): void {
 function update(dt: number, now: number): void {
   player.moving = false;
   const nearby = world.npcsNear(player.x, player.y, 760);
+  ambientMeetups = ambientMeetups.filter((meetup) => meetup.expiresAt > now);
   if (!activeNpc && !dialogueInput.matches(':focus')) {
     let dx = 0;
     let dy = 0;
@@ -523,7 +582,6 @@ function draw(now: number): void {
   drawPaths(camera);
   drawLandmarks(camera);
   drawHouses(camera);
-  drawHills(camera);
   drawTrees(camera);
   const npcs = world.npcsNear(player.x, player.y, Math.max(cssWidth, cssHeight));
   drawFootsteps(camera, now);
@@ -548,10 +606,6 @@ function drawTerrain(camera: { x: number; y: number }): void {
       const sample = world.terrainAt(x + tile / 2, y + tile / 2);
       ctx.fillStyle = terrainColor(sample.biome, sample.height, sample.moisture, sample.path);
       ctx.fillRect(Math.floor(x - camera.x), Math.floor(y - camera.y), tile + 1, tile + 1);
-      if (sample.hill > 0.08) {
-        ctx.fillStyle = `rgba(59, 73, 60, ${Math.min(0.22, sample.hill * 0.18)})`;
-        ctx.fillRect(Math.floor(x - camera.x), Math.floor(y - camera.y), tile + 1, tile + 1);
-      }
     }
   }
 }
@@ -655,11 +709,34 @@ function npcPosition(npc: GeneratedNpc, now: number, crowd: GeneratedNpc[] = [])
   if (activeNpc?.id === npc.id && activeNpcPosition) {
     return activeNpcPosition;
   }
+  const meetup = ambientMeetupForNpc(npc.id, now);
+  if (meetup) {
+    const raw = wanderedNpcPosition(npc, now);
+    const index = meetup.npcIds[0] === npc.id ? 0 : 1;
+    const side = index === 0 ? -1 : 1;
+    const target = clampToMap({
+      x: meetup.center.x + side * 30,
+      y: meetup.center.y + (index === 0 ? -8 : 8)
+    }, 42);
+    const progress = Math.max(0, Math.min(1, (now - meetup.startedAt) / 1_500));
+    const eased = 1 - Math.pow(1 - progress, 3);
+    const point = {
+      x: raw.x + (target.x - raw.x) * eased,
+      y: raw.y + (target.y - raw.y) * eased
+    };
+    if (canNpcStand(point, npc, now, crowd)) {
+      return point;
+    }
+  }
   const raw = wanderedNpcPosition(npc, now);
   if (!canNpcStand(raw, npc, now, crowd)) {
     return npcFallbackPosition(npc, now, crowd);
   }
   return raw;
+}
+
+function ambientMeetupForNpc(npcId: string, now: number): AmbientMeetup | undefined {
+  return ambientMeetups.find((meetup) => meetup.expiresAt > now && meetup.npcIds.includes(npcId));
 }
 
 function npcFallbackPosition(npc: GeneratedNpc, now: number, crowd: GeneratedNpc[]): Vec2 {
@@ -725,7 +802,8 @@ async function triggerBumpReaction(npc: GeneratedNpc, now: number): Promise<void
       y: pos.y,
       text: turn.text,
       startsAt: createdAt,
-      expiresAt: createdAt + 4_200
+      expiresAt: createdAt + 4_200,
+      kind: 'reaction'
     });
     traceLine = `${turn.trace?.recipeId ?? 'npc.dialogue'} / ${turn.trace?.providerId ?? 'unknown'} / bump reaction`;
     traceDetail = turn.trace?.rawText.slice(0, 420) ?? '';
@@ -814,29 +892,6 @@ function strokeCrossPath(camera: { x: number; y: number }): void {
     else ctx.lineTo(sx, sy);
   }
   ctx.stroke();
-}
-
-function drawHills(camera: { x: number; y: number }): void {
-  const hills = world.hillsInRect(camera.x - 240, camera.y - 240, camera.x + cssWidth + 240, camera.y + cssHeight + 240);
-  for (const hill of hills) {
-    const x = hill.x - camera.x;
-    const y = hill.y - camera.y;
-    const gradient = ctx.createRadialGradient(x, y, hill.radius * 0.1, x, y, hill.radius);
-    gradient.addColorStop(0, 'rgba(84, 100, 74, 0.34)');
-    gradient.addColorStop(0.62, 'rgba(84, 100, 74, 0.16)');
-    gradient.addColorStop(1, 'rgba(84, 100, 74, 0)');
-    ctx.fillStyle = gradient;
-    ctx.beginPath();
-    ctx.ellipse(x, y, hill.radius * 1.2, hill.radius * 0.72, -0.28, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.strokeStyle = 'rgba(47, 57, 49, 0.22)';
-    ctx.lineWidth = 2;
-    for (let i = 0.45; i <= 0.85; i += 0.2) {
-      ctx.beginPath();
-      ctx.ellipse(x, y, hill.radius * 1.2 * i, hill.radius * 0.72 * i, -0.28, 0, Math.PI * 2);
-      ctx.stroke();
-    }
-  }
 }
 
 function drawHouses(camera: { x: number; y: number }): void {
@@ -1103,10 +1158,14 @@ function drawBubbles(camera: { x: number; y: number }, now: number, npcs: Genera
   const anchors = new Map(npcs.map((npc) => [npc.id, npcPosition(npc, now, npcs)]));
   for (const bubble of bubbles) {
     if (bubble.startsAt > now) continue;
-    const alpha = Math.min(1, (bubble.expiresAt - now) / 650);
+    const fadeIn = Math.min(1, (now - bubble.startsAt) / 550);
+    const fadeOut = Math.min(1, (bubble.expiresAt - now) / 1_050);
+    const alpha = Math.max(0, Math.min(0.94, fadeIn, fadeOut));
     const anchor = anchors.get(bubble.npcId) ?? { x: bubble.x, y: bubble.y };
     const sx = anchor.x - camera.x;
-    const sy = anchor.y - camera.y - 58;
+    const sy = anchor.y - camera.y - 58 + (1 - fadeIn) * 7 - (1 - fadeOut) * 5;
+    ctx.save();
+    ctx.font = '13px Georgia, serif';
     const lines = wrapText(bubble.text, 28).slice(0, 3);
     const width = Math.min(260, Math.max(120, ...lines.map((line) => ctx.measureText(line).width + 28)));
     const height = 24 + lines.length * 18;
@@ -1124,9 +1183,9 @@ function drawBubbles(camera: { x: number; y: number }, now: number, npcs: Genera
     ctx.fill();
     ctx.stroke();
     ctx.fillStyle = '#f4e4bf';
-    ctx.font = '13px Georgia, serif';
+    ctx.textAlign = 'left';
     lines.forEach((line, index) => ctx.fillText(line, sx - width / 2 + 14, sy - height + 20 + index * 18));
-    ctx.globalAlpha = 1;
+    ctx.restore();
   }
 }
 
@@ -1259,7 +1318,7 @@ async function updateDiagnostics(): Promise<void> {
   if (fps > 0) {
     fpsHistory = [...fpsHistory, Math.max(0, Math.min(100, (fps / 60) * 100))].slice(-72);
   }
-  diagFpsEl.textContent = fps > 0 ? `${fps} fps` : 'measuring';
+  updateAmbientFlowLine();
 
   if (!latestDiagnostics) {
     diagCpuEl.textContent = 'unavailable';
@@ -1433,7 +1492,8 @@ function renderHud(): void {
   warmupEl.textContent = warmupLine;
   traceEl.textContent = traceLine;
   traceDetailEl.textContent = traceDetail;
-  traceToggle.textContent = traceOpen ? 'Hide Runtime Trace' : 'Runtime Trace';
+  fpsPillEl.textContent = fps > 0 ? `${fps} fps` : '-- fps';
+  traceToggle.textContent = traceOpen ? 'Diagnostics ^' : 'Diagnostics v';
   perfLogToggle.textContent = perfLogStatus.active ? 'Stop Perf Log' : 'Record Perf';
   perfLogLineEl.textContent = perfLogStatus.active
     ? `Recording ${perfLogStatus.samples} samples${perfLogStatus.path ? ` / ${perfLogStatus.path}` : ''}`
@@ -1441,6 +1501,16 @@ function renderHud(): void {
       ? `Stopped ${perfLogStatus.samples} samples / ${perfLogStatus.path}`
       : 'Perf log idle';
   devtoolsEl.classList.toggle('collapsed', !traceOpen);
+  tabMachine.classList.toggle('active', diagnosticsTab === 'machine');
+  tabTrace.classList.toggle('active', diagnosticsTab === 'trace');
+  tabPerf.classList.toggle('active', diagnosticsTab === 'perf');
+  panelMachine.classList.toggle('hidden', diagnosticsTab !== 'machine');
+  panelTrace.classList.toggle('hidden', diagnosticsTab !== 'trace');
+  panelPerf.classList.toggle('hidden', diagnosticsTab !== 'perf');
+  graphToggle.textContent = diagnosticsGraphOpen ? 'Graph ^' : 'Graph v';
+  graphToggle.setAttribute('aria-expanded', String(diagnosticsGraphOpen));
+  diagGraphWrapEl.classList.toggle('hidden', !diagnosticsGraphOpen);
+  updateAmbientFlowLine();
   regionEl.textContent = regionName(player.x, player.y);
   coordEl.textContent = `${Math.round(player.x)}, ${Math.round(player.y)}${performance.now() < wallPulseUntil ? ' / map edge' : ''}`;
 
@@ -1505,7 +1575,8 @@ async function startConversation(npc: GeneratedNpc): Promise<void> {
       y: pos.y,
       text: session.refusalReason ?? 'I said enough.',
       startsAt: createdAt,
-      expiresAt: createdAt + 4_800
+      expiresAt: createdAt + 4_800,
+      kind: 'reaction'
     });
     return;
   }
@@ -1554,7 +1625,8 @@ async function interruptPrivateConversation(npc: GeneratedNpc): Promise<void> {
       y: pos.y,
       text: turn.text,
       startsAt: createdAt,
-      expiresAt: createdAt + 5_500
+      expiresAt: createdAt + 5_500,
+      kind: 'reaction'
     });
     traceLine = `${turn.trace?.recipeId ?? 'npc.dialogue'} / ${turn.trace?.providerId ?? 'unknown'} / private refusal`;
     traceDetail = turn.trace?.rawText.slice(0, 420) ?? '';
@@ -1621,7 +1693,8 @@ function applyDialogueTurn(npc: GeneratedNpc, turn: DialogueTurn): void {
     y: pos.y,
     text: turn.text,
     startsAt: createdAt,
-    expiresAt: createdAt + 6_000
+    expiresAt: createdAt + 6_000,
+    kind: 'dialogue'
   });
   ended = Boolean(turn.shouldEndConversation || !turn.willTalkAgain);
   if (turn.trace) {
@@ -1684,113 +1757,41 @@ function applyNpcSessionTurn(npc: GeneratedNpc, turn: DialogueTurn): void {
 }
 
 function maybeRequestAmbient(now: number, nearby: GeneratedNpc[]): void {
-  if (activeNpc || busy) return;
-  if (!ambientCacheReady) return;
-  const close = nearby.filter((npc) => distance(wanderedNpcPosition(npc, now), player) < 390);
+  if (activeNpc || busy || !ambientCacheReady) return;
+  pruneAmbientCooldowns(now);
+  if (now < nextAmbientAt) return;
+  if (ambientInFlight || overhearInFlight) return;
+  if (visibleAmbientSpeakers(now).size >= maxAmbientSpeakers) {
+    scheduleNextAmbient(now, 2_800, 5_200);
+    return;
+  }
+
+  const close = nearby
+    .filter((npc) => distance(npcPosition(npc, now, nearby), player) < 520)
+    .sort((left, right) => distance(npcPosition(left, now, nearby), player) - distance(npcPosition(right, now, nearby), player));
+
   const privateGroup = firstReadyPrivateGroup(close, now);
-  if (privateGroup && !overhearInFlight) {
-    overhearInFlight = true;
-    for (const member of privateGroup) {
-      member.lastOverheardAt = now;
-    }
+  if (privateGroup) {
     const [a, b] = privateGroup;
-    if (a && b) {
-      void ai.overhear({
-        npc: stripRuntimeNpc(a),
-        request: overhearRequest(a, b, 'private'),
-        options: {
-          cacheOnly: true
-        }
-      }).then((exchange) => {
-        if (exchange.trace?.fallback) {
-          traceLine = 'group overhear cache miss / waiting for pregeneration';
-          traceDetail = '';
-          return;
-        }
-        applyOverheard(exchange, [a, b]);
-      })
-        .catch((error) => {
-          traceLine = `group overhear failed / ${errorMessage(error)}`;
-        })
-        .finally(() => {
-          overhearInFlight = false;
-        });
-      return;
-    }
+    if (a && b && tryStartOverheard(a, b, 'private', now, close)) return;
   }
 
-  if (!ambientInFlight) {
-    const npc = close.find((candidate) => candidate.conversationPolicy === 'open' && now - candidate.lastBarkAt > 18_000 + (candidate.x % 11) * 1_000);
-    if (npc) {
-      ambientInFlight = true;
-      npc.lastBarkAt = now;
-      void ai.bark({
-        npc: stripRuntimeNpc(npc),
-        request: ambientBarkRequest(npc),
-        options: {
-          cacheOnly: true
-        }
-      }).then((bark) => {
-        if (bark.trace?.fallback) {
-          traceLine = 'bark cache miss / waiting for pregeneration';
-          traceDetail = '';
-          return;
-        }
-        const pos = wanderedNpcPosition(npc, performance.now());
-        const createdAt = performance.now();
-        bubbles.push({
-          id: `${npc.id}:bark:${now}`,
-          npcId: npc.id,
-          x: pos.x,
-          y: pos.y,
-          text: bark.text,
-          startsAt: createdAt,
-          expiresAt: createdAt + 4_800
-        });
-      }).catch((error) => {
-        traceLine = `bark failed / ${errorMessage(error)}`;
-      }).finally(() => {
-        ambientInFlight = false;
-      });
-    }
+  const openPair = firstReadyOpenPair(close, now);
+  if (openPair && tryStartOverheard(openPair[0], openPair[1], 'open', now, close)) return;
+
+  if (now - lastAmbientAnnouncementAt > 42_000) {
+    const announcer = firstReadyAnnouncer(close, now);
+    if (announcer && tryStartAnnouncement(announcer, now, nearby)) return;
   }
 
-  if (!overhearInFlight && close.length >= 2) {
-    const [a, b] = close
-      .filter((npc) => npc.conversationPolicy === 'open')
-      .sort((left, right) => distance(wanderedNpcPosition(left, now), player) - distance(wanderedNpcPosition(right, now), player));
-    if (a && b && distance(wanderedNpcPosition(a, now), wanderedNpcPosition(b, now)) < 430 && now - a.lastOverheardAt > 32_000 && now - b.lastOverheardAt > 32_000) {
-      overhearInFlight = true;
-      a.lastOverheardAt = now;
-      b.lastOverheardAt = now;
-      void ai.overhear({
-        npc: stripRuntimeNpc(a),
-        request: overhearRequest(a, b, 'open'),
-        options: {
-          cacheOnly: true
-        }
-      }).then((exchange) => {
-        if (exchange.trace?.fallback) {
-          traceLine = 'overhear cache miss / waiting for pregeneration';
-          traceDetail = '';
-          return;
-        }
-        applyOverheard(exchange, [a, b]);
-      })
-        .catch((error) => {
-          traceLine = `overhear failed / ${errorMessage(error)}`;
-        })
-        .finally(() => {
-          overhearInFlight = false;
-        });
-    }
-  }
+  scheduleNextAmbient(now, 4_000, 7_000);
 }
 
 function firstReadyPrivateGroup(close: GeneratedNpc[], now: number): GeneratedNpc[] | undefined {
   const groups = new Map<string, GeneratedNpc[]>();
   for (const npc of close) {
     if (npc.conversationPolicy !== 'private' || !npc.groupId) continue;
+    if (!ambientSpeakerReady(npc, now)) continue;
     const members = groups.get(npc.groupId) ?? [];
     members.push(npc);
     groups.set(npc.groupId, members);
@@ -1798,13 +1799,242 @@ function firstReadyPrivateGroup(close: GeneratedNpc[], now: number): GeneratedNp
 
   for (const members of groups.values()) {
     if (members.length < 2) continue;
-    if (members.every((member) => now - member.lastOverheardAt > 12_000 + (member.wanderSeed % 5) * 1_000)) {
-      return members
-        .sort((left, right) => distance(wanderedNpcPosition(left, now), player) - distance(wanderedNpcPosition(right, now), player))
-        .slice(0, 2);
+    const pair = members
+      .sort((left, right) => distance(npcPosition(left, now, members), player) - distance(npcPosition(right, now, members), player))
+      .slice(0, 2);
+    const [a, b] = pair;
+    if (!a || !b) continue;
+    if (!ambientPairReady(a, b, privateTopicKey(a), now)) continue;
+    if (canStartAmbientFor(pair, now)) return pair;
+  }
+  return undefined;
+}
+
+function firstReadyOpenPair(close: GeneratedNpc[], now: number): [GeneratedNpc, GeneratedNpc] | undefined {
+  const eligible = close
+    .filter((npc) => npc.conversationPolicy === 'open' && ambientSpeakerReady(npc, now))
+    .sort((left, right) => distance(npcPosition(left, now, close), player) - distance(npcPosition(right, now, close), player));
+
+  for (let index = 0; index < eligible.length; index += 1) {
+    const a = eligible[index];
+    if (!a) continue;
+    const aPos = npcPosition(a, now, close);
+    const candidates = eligible
+      .slice(index + 1)
+      .filter((candidate) => distance(aPos, npcPosition(candidate, now, close)) < 560)
+      .sort((left, right) => distance(aPos, npcPosition(left, now, close)) - distance(aPos, npcPosition(right, now, close)));
+    for (const b of candidates) {
+      if (!ambientPairReady(a, b, landmarkTopicKey(a), now)) continue;
+      if (canStartAmbientFor([a, b], now)) return [a, b];
     }
   }
   return undefined;
+}
+
+function firstReadyAnnouncer(close: GeneratedNpc[], now: number): GeneratedNpc | undefined {
+  return close
+    .filter((npc) => npc.conversationPolicy === 'open' && ambientSpeakerReady(npc, now))
+    .sort((left, right) => announcementPriority(right) - announcementPriority(left) || distance(npcPosition(left, now, close), player) - distance(npcPosition(right, now, close), player))[0];
+}
+
+function announcementPriority(npc: GeneratedNpc): number {
+  if (npc.persona.role.includes('guard')) return 4;
+  if (npc.persona.role.includes('bell keeper')) return 3;
+  if (npc.persona.role.includes('peddler')) return 2;
+  return npc.wanderSeed % 3 === 0 ? 1 : 0;
+}
+
+function tryStartOverheard(a: GeneratedNpc, b: GeneratedNpc, mode: 'private' | 'open', now: number, crowd: GeneratedNpc[]): boolean {
+  if (overhearInFlight || !canStartAmbientFor([a, b], now)) return false;
+  const topicKey = mode === 'private' ? privateTopicKey(a) : landmarkTopicKey(a);
+  if (!ambientPairReady(a, b, topicKey, now)) return false;
+
+  overhearInFlight = true;
+  const speechMs = mode === 'private' ? 8_800 : 7_800;
+  registerAmbientSpeech([a, b], now, speechMs, ambientPairKey(a, b), topicKey);
+  startAmbientMeetup(a, b, now, speechMs + 1_800, crowd);
+  scheduleNextAmbient(now, mode === 'private' ? 13_000 : 14_000, mode === 'private' ? 20_000 : 22_000);
+
+  void ai.overhear({
+    npc: stripRuntimeNpc(a),
+    request: overhearRequest(a, b, mode),
+    options: {
+      cacheOnly: true
+    }
+  }).then((exchange) => {
+    if (exchange.trace?.fallback) {
+      traceLine = `${mode} overhear cache miss / waiting for pregeneration`;
+      traceDetail = '';
+      return;
+    }
+    applyOverheard(exchange, [a, b], {
+      startsAt: performance.now() + 850,
+      kind: 'ambient'
+    });
+  })
+    .catch((error) => {
+      traceLine = `${mode} overhear failed / ${errorMessage(error)}`;
+    })
+    .finally(() => {
+      overhearInFlight = false;
+    });
+
+  return true;
+}
+
+function tryStartAnnouncement(npc: GeneratedNpc, now: number, crowd: GeneratedNpc[]): boolean {
+  if (ambientInFlight || !canStartAmbientFor([npc], now)) return false;
+  const topicKey = `announcement:${landmarkTopicKey(npc)}`;
+  if ((ambientTopicCooldowns.get(topicKey) ?? 0) > now) return false;
+
+  ambientInFlight = true;
+  lastAmbientAnnouncementAt = now;
+  registerAmbientSpeech([npc], now, 6_400, undefined, topicKey);
+  scheduleNextAmbient(now, 22_000, 36_000);
+
+  void ai.bark({
+    npc: stripRuntimeNpc(npc),
+    request: ambientBarkRequest(npc),
+    options: {
+      cacheOnly: true
+    }
+  }).then((bark) => {
+    if (bark.trace?.fallback) {
+      traceLine = 'announcement cache miss / waiting for pregeneration';
+      traceDetail = '';
+      return;
+    }
+    const createdAt = performance.now();
+    const pos = npcPosition(npc, createdAt, crowd);
+    bubbles.push({
+      id: `${npc.id}:announcement:${createdAt}`,
+      npcId: npc.id,
+      x: pos.x,
+      y: pos.y,
+      text: bark.text,
+      startsAt: createdAt,
+      expiresAt: createdAt + 5_400,
+      kind: 'ambient'
+    });
+    traceLine = `${bark.trace?.recipeId ?? 'npc.bark'} / ${bark.trace?.providerId ?? 'unknown'} / announcement`;
+    traceDetail = bark.trace?.rawText.slice(0, 420) ?? '';
+  }).catch((error) => {
+    traceLine = `announcement failed / ${errorMessage(error)}`;
+  }).finally(() => {
+    ambientInFlight = false;
+  });
+
+  return true;
+}
+
+function startAmbientMeetup(a: GeneratedNpc, b: GeneratedNpc, now: number, durationMs: number, crowd: GeneratedNpc[]): void {
+  const center = ambientConversationCenter(a, b, now, crowd);
+  ambientMeetups = ambientMeetups.filter((meetup) => !meetup.npcIds.includes(a.id) && !meetup.npcIds.includes(b.id));
+  ambientMeetups.push({
+    npcIds: [a.id, b.id],
+    center,
+    startedAt: now,
+    expiresAt: now + durationMs
+  });
+}
+
+function ambientConversationCenter(a: GeneratedNpc, b: GeneratedNpc, now: number, crowd: GeneratedNpc[]): Vec2 {
+  const aPos = npcPosition(a, now, crowd);
+  const bPos = npcPosition(b, now, crowd);
+  const midpoint = clampToMap({
+    x: (aPos.x + bPos.x) / 2,
+    y: (aPos.y + bPos.y) / 2
+  }, 70);
+  const candidates = [
+    midpoint,
+    { x: midpoint.x + 52, y: midpoint.y },
+    { x: midpoint.x - 52, y: midpoint.y },
+    { x: midpoint.x, y: midpoint.y + 46 },
+    { x: midpoint.x, y: midpoint.y - 46 }
+  ].map((candidate) => clampToMap(candidate, 70));
+  return candidates.find((candidate) => isInsideMap(candidate, 60) && !staticCollisionAt(candidate, 30)) ?? midpoint;
+}
+
+function visibleAmbientSpeakers(now: number): Set<string> {
+  const speakers = new Set<string>();
+  for (const bubble of bubbles) {
+    if (bubble.kind !== 'ambient') continue;
+    if (bubble.expiresAt <= now || bubble.startsAt > now + 2_200) continue;
+    speakers.add(bubble.npcId);
+  }
+  return speakers;
+}
+
+function canStartAmbientFor(npcs: GeneratedNpc[], now: number): boolean {
+  const speakers = visibleAmbientSpeakers(now);
+  for (const npc of npcs) {
+    speakers.add(npc.id);
+  }
+  return speakers.size <= maxAmbientSpeakers && npcs.every((npc) => ambientSpeakerReady(npc, now));
+}
+
+function ambientSpeakerReady(npc: GeneratedNpc, now: number): boolean {
+  if ((ambientSpeakerCooldowns.get(npc.id) ?? 0) > now) return false;
+  if (visibleAmbientSpeakers(now).has(npc.id)) return false;
+  return true;
+}
+
+function ambientPairReady(a: GeneratedNpc, b: GeneratedNpc, topicKey: string, now: number): boolean {
+  return (ambientPairCooldowns.get(ambientPairKey(a, b)) ?? 0) <= now &&
+    (ambientTopicCooldowns.get(topicKey) ?? 0) <= now;
+}
+
+function registerAmbientSpeech(npcs: GeneratedNpc[], now: number, durationMs: number, pairKey?: string, topicKey?: string): void {
+  for (const npc of npcs) {
+    npc.lastBarkAt = now;
+    npc.lastOverheardAt = now;
+    ambientSpeakerCooldowns.set(npc.id, now + durationMs + 22_000 + (npc.wanderSeed % 7) * 1_200);
+  }
+  if (pairKey) {
+    ambientPairCooldowns.set(pairKey, now + 70_000);
+  }
+  if (topicKey) {
+    ambientTopicCooldowns.set(topicKey, now + 46_000);
+  }
+}
+
+function scheduleNextAmbient(now: number, minMs: number, maxMs: number): void {
+  const spread = Math.max(0, maxMs - minMs);
+  nextAmbientAt = now + minMs + Math.random() * spread;
+}
+
+function pruneAmbientCooldowns(now: number): void {
+  pruneCooldownMap(ambientSpeakerCooldowns, now);
+  pruneCooldownMap(ambientPairCooldowns, now);
+  pruneCooldownMap(ambientTopicCooldowns, now);
+}
+
+function pruneCooldownMap(map: Map<string, number>, now: number): void {
+  for (const [key, expiresAt] of map.entries()) {
+    if (expiresAt < now - 30_000) {
+      map.delete(key);
+    }
+  }
+}
+
+function ambientPairKey(a: GeneratedNpc, b: GeneratedNpc): string {
+  return [a.id, b.id].sort().join('|');
+}
+
+function privateTopicKey(npc: GeneratedNpc): string {
+  return `private:${npc.groupId ?? npc.id}:${npc.wanderSeed % 4}`;
+}
+
+function landmarkTopicKey(npc: GeneratedNpc): string {
+  const landmark = nearestLandmarks(npc, 1800)[0] ?? landmarks[npc.wanderSeed % landmarks.length];
+  return landmark?.id ?? 'road';
+}
+
+function updateAmbientFlowLine(now = performance.now()): void {
+  const visible = visibleAmbientSpeakers(now).size;
+  const next = Math.max(0, Math.round((nextAmbientAt - now) / 1000));
+  const queuedMeetups = ambientMeetups.filter((meetup) => meetup.expiresAt > now).length;
+  diagFlowEl.textContent = `${visible}/${maxAmbientSpeakers} speakers / next ${next}s / ${queuedMeetups} meetups`;
 }
 
 function privateTopicForGroup(npc: GeneratedNpc): string {
@@ -1867,16 +2097,20 @@ function bumpCacheKey(npc: GeneratedNpc): string {
   return `dialogue:bump:${npc.id}`;
 }
 
-function applyOverheard(exchange: OverheardExchange, npcs: GeneratedNpc[]): void {
+function applyOverheard(
+  exchange: OverheardExchange,
+  npcs: GeneratedNpc[],
+  options: { startsAt?: number; kind?: Bubble['kind'] } = {}
+): void {
   const byId = new Map(npcs.map((npc) => [npc.id, npc]));
-  const base = performance.now();
-  for (let index = 0; index < exchange.lines.length; index += 1) {
+  const base = options.startsAt ?? performance.now();
+  for (let index = 0; index < exchange.lines.slice(0, maxAmbientSpeakers).length; index += 1) {
     const line = exchange.lines[index];
     if (!line) continue;
     const npc = byId.get(line.npcId) ?? npcs[0];
     if (!npc) continue;
     const startsAt = base + index * 1_350;
-    const pos = wanderedNpcPosition(npc, startsAt);
+    const pos = npcPosition(npc, startsAt, npcs);
     bubbles.push({
       id: `${line.npcId}:overheard:${startsAt}`,
       npcId: line.npcId,
@@ -1884,7 +2118,8 @@ function applyOverheard(exchange: OverheardExchange, npcs: GeneratedNpc[]): void
       y: pos.y,
       text: line.text,
       startsAt,
-      expiresAt: startsAt + 5_600
+      expiresAt: startsAt + 4_700,
+      kind: options.kind ?? 'ambient'
     });
   }
   if (exchange.trace) {
