@@ -192,6 +192,68 @@ export interface OverhearRequest {
   topic?: string;
 }
 
+export type AreaEventKind = 'banditAmbush' | 'mysteriousBeing' | 'strangeSounds';
+
+export interface AreaEventRequest {
+  area: {
+    id: string;
+    name: string;
+    kind: string;
+    lore: string;
+    rumor?: string;
+  };
+  scene: SceneContext;
+  player?: PlayerContext;
+  allowedKinds?: AreaEventKind[];
+  recentEvents?: string[];
+}
+
+export interface AreaEventBandit {
+  id: string;
+  name: string;
+  title: string;
+  entryLine: string;
+  threatLines: string[];
+  emotion: DialogueEmotion;
+}
+
+export interface AreaEventBeing {
+  id: string;
+  name: string;
+  description: string;
+  greeting: string;
+  speechStyle: string;
+  mood: NpcMood;
+}
+
+export interface AreaEventSound {
+  text: string;
+  emotion: DialogueEmotion;
+}
+
+export interface AreaEvent {
+  kind: AreaEventKind;
+  title: string;
+  locationId: string;
+  locationName: string;
+  triggerRadius: number;
+  introText: string;
+  bandits?: AreaEventBandit[];
+  being?: AreaEventBeing;
+  sounds?: AreaEventSound[];
+  memoryWrites: MemoryWrite[];
+  safetyFlags: SafetyFlag[];
+  trace?: DebugTrace;
+}
+
+export interface AreaEventGenerationOptions {
+  timeoutMs?: number;
+  cacheKey?: string;
+  cacheOnly?: boolean;
+  refresh?: boolean;
+  signal?: AbortSignal;
+}
+
 export type MemoryScope = 'npc' | 'player' | 'world' | 'scene';
 
 export interface MemoryWrite {

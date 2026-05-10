@@ -6,16 +6,16 @@ The core promise:
 
 > Dynamic game text without surrendering control of your game.
 
-This repo is not mainly a game. The game is the showcase. The main product idea is a TypeScript toolkit that lets developers turn local LLMs into controlled, schema-bound, lore-aware game systems: NPC dialogue, ambient barks, overheard conversations, memory, policy checks, cache-first runtime behavior, diagnostics, and safe Electron IPC.
+This repo is not mainly a game. The game is the showcase. The main product idea is a TypeScript toolkit that lets developers turn local LLMs into controlled, schema-bound, lore-aware game systems: NPC dialogue, area events, ambient barks, overheard conversations, memory, policy checks, cache-first runtime behavior, diagnostics, and safe Electron IPC.
 
 ![The World playable demo](docs/the-world-demo.png)
 
 ## What Developers Get
 
-- `@game-llm/core`: NPC definitions, scene context, schema-bound recipes, prompt compilation, memory, cache, validation, repair, fallback behavior, cancellation, and a deterministic mock provider for tests.
+- `@game-llm/core`: NPC definitions, scene context, schema-bound recipes, area-event triggers, prompt compilation, memory, cache, validation, repair, fallback behavior, cancellation, and a deterministic mock provider for tests.
 - `@game-llm/ollama`: local Ollama provider with health checks, installed-model discovery, warmup, structured JSON calls, Gemma-friendly defaults, timing/token metrics, runtime options, and `AbortSignal` support.
 - `@game-llm/litert-lm`: experimental LiteRT-LM provider with imported-model health checks, warmup, structured output cleanup, and a persistent Python bridge that keeps the LiteRT engine loaded between requests.
-- `@game-llm/electron`: safe IPC bridge so a renderer can request dialogue, barks, overheard exchanges, warmup, pregeneration, and cancellation without arbitrary model access.
+- `@game-llm/electron`: safe IPC bridge so a renderer can request dialogue, area events, barks, overheard exchanges, warmup, pregeneration, and cancellation without arbitrary model access.
 - `apps/the-world`: a playable canvas/Electron demo that uses the SDK under real runtime pressure.
 
 The package boundary is deliberate: **core knows games, providers know models, apps know their own lore**.
@@ -217,6 +217,40 @@ In the sample game, `callForHelp` spawns constables and ends the conversation. I
 
 For responsiveness, the playable demo now skips the mood/action assessment pass for ordinary low-risk lines and keeps it on for threat-like or guard-relevant dialogue. That keeps a normal greeting to one model call while still testing Gemma's judgment when the player says something risky.
 
+## Area Events
+
+The SDK also exposes a `world.areaEvent` recipe for special building triggers. The model returns a typed `AreaEvent`, not a free-form script:
+
+```ts
+const event = await ai.areaEvent({
+  area: {
+    id: 'old-mill',
+    name: 'The Old Mill',
+    kind: 'mill',
+    lore: 'The Old Mill turns its wheel on windless nights.',
+    rumor: 'folk lower their voices when the Old Mill creaks after sunset'
+  },
+  scene: {
+    location: 'The Old Mill',
+    visibleFeatures: ['The Old Mill', 'river road'],
+    contextualFacts: ['Nobody brought grain to the mill today.']
+  },
+  allowedKinds: ['banditAmbush']
+}, {
+  cacheKey: 'area-event:old-mill:default',
+  refresh: true,
+  timeoutMs: 30_000
+});
+```
+
+`AreaEvent.kind` is one of:
+
+- `banditAmbush`: Gemma creates bandits and building-specific threat lines. The game may spawn actors, but Gemma does not decide damage, rewards, inventory, or quest completion.
+- `mysteriousBeing`: Gemma creates a place-bound being with a name, description, greeting, mood, and speech style. The demo turns it into an NPC conversation.
+- `strangeSounds`: Gemma creates short sensory lines near the structure with no direct interaction.
+
+In the playable demo, the four authored landmarks preload their area events after model warmup. The app constrains each landmark to a specific event lane so every structure gets a distinct trigger instead of four independent random rolls. If a player reaches a landmark before preload finishes, the trigger visibly waits for Gemma instead of using canned content.
+
 ## Runtime Controls
 
 Local models can be expensive during play, so the SDK is built around control points.
@@ -243,7 +277,7 @@ runtime: {
 
 For ambient text, the shipped game pre-generates barks and overheard exchanges, then uses cache-only reads while the player walks. That prevents background Gemma calls from dragging down movement and frame rate.
 
-In the current demo, ambient pregeneration no longer blocks the player from entering the world. The loading screen waits for runtime health and model warmup, then schedules a small capped ambient cache job in the background after the player has had a short window to start interacting.
+In the current demo, ambient pregeneration no longer blocks the player from entering the world. The loading screen waits for runtime health and model warmup, then schedules landmark area-event preload first and a small capped ambient cache job after that.
 
 **Refresh pregenerated content**
 
@@ -311,6 +345,8 @@ const turn = await window.gameAI.dialogue({
 await window.gameAI.cancel({ requestId });
 ```
 
+The bridge also exposes `window.gameAI.areaEvent(...)` and accepts `areaEvent` jobs in `preGenerate(...)`. Renderer payloads are runtime validated before reaching `GameAI`.
+
 The IPC bridge validates payloads with the shared Zod schemas from `@game-llm/core`.
 
 ## The Playable Demo
@@ -321,12 +357,14 @@ The IPC bridge validates payloads with the shared Zod schemas from `@game-llm/co
 - Startup stack chooser for Ollama or experimental LiteRT-LM, with `THE_WORLD_AI_STACK` for deterministic runs.
 - Loading screen that checks runtime health, warms the selected Gemma model, and shows failures plainly.
 - Random spawn near one of the towns.
-- Click-to-talk NPC interaction with free-text Gemma replies.
+- Left-side click-to-talk panel with speaker portraits, chat history, immediate local goodbye, and a visible thinking animation while Gemma is generating.
 - NPC mood/disposition state and Gemma-controlled refusal/end-conversation behavior for lines that need assessment.
+- Gemma-generated landmark area events for the Old Mill, Abandoned Castle, Sunken Chapel, and Black Bell Tower.
+- Typed trigger execution for generated bandit ambushes, mysterious beings, and strange structure sounds.
 - Private NPC groups that speak to each other and refuse interruption.
 - Ambient stage manager that caps visible ambient speakers, rotates topics, and moves NPCs together before short exchanges.
 - Small background ambient cache so walking does not constantly call Gemma or block startup.
-- Minimap, invisible map walls, building collision, walking effects, and live FPS.
+- Compact top HUD, single location chip, minimap, invisible map walls, building collision, walking effects, and live FPS.
 - Diagnostics panel for provider/model/cache/fallback, prompt traces, CPU, GPU, GPU memory, machine memory, app memory, and optional JSONL performance logs.
 
 The renderer intentionally has no playable fake-AI fallback. If the Electron/Gemma path is broken, the demo should make that obvious.
@@ -393,7 +431,7 @@ The current Electron dependency is `42.0.0`. The upgrade removes noisy macOS nat
 ```txt
 packages/core
   Runtime types, schemas, recipes, prompt compiler, cache, memory,
-  repair, mock provider, and tests.
+  repair, typed area events, mock provider, and tests.
 
 packages/ollama
   Ollama provider, model discovery, warmup, structured JSON generation,
@@ -405,11 +443,11 @@ packages/litert-lm
 
 packages/electron
   Main/preload IPC bridge, shared schema validation, request cancellation,
-  pregeneration bridge, and tests.
+  area-event bridge, pregeneration bridge, and tests.
 
 apps/the-world
   Electron shell, canvas renderer, procedural world, ambient director,
-  diagnostics, performance logging, and playable demo.
+  area-event triggers, diagnostics, performance logging, and playable demo.
 ```
 
 ## Roadmap

@@ -30,7 +30,9 @@ export class MockGameAIProvider implements GameAIProvider {
           ? this.assessMood(request)
           : recipeId.includes('decideAction')
             ? this.decideAction(request)
-            : this.dialogue(request);
+            : recipeId.includes('areaEvent')
+              ? this.areaEvent(request)
+              : this.dialogue(request);
 
     return {
       text,
@@ -135,6 +137,70 @@ export class MockGameAIProvider implements GameAIProvider {
         { npcId: npcA, text: 'Saw smoke beyond the west hill again.', emotion: 'suspicious' },
         { npcId: npcB, text: 'Smoke is honest. People are the worry.', emotion: 'amused' }
       ],
+      safetyFlags: []
+    });
+  }
+
+  private areaEvent(request: GenerateRequest): string {
+    const prompt = request.messages.map((message) => message.content).join('\n');
+    const areaName = capture(prompt, /"name":"([^"]+)"/) ?? 'The Old Mill';
+    const areaId = capture(prompt, /"id":"([^"]+)"/) ?? 'old-mill';
+    const choices = ['banditAmbush', 'mysteriousBeing', 'strangeSounds'] as const;
+    const kind = choices[Math.abs(hash(prompt)) % choices.length]!;
+    if (kind === 'banditAmbush') {
+      return JSON.stringify({
+        kind,
+        title: `Bandits at ${areaName}`,
+        locationId: areaId,
+        locationName: areaName,
+        triggerRadius: 300,
+        introText: `Boots scrape inside ${areaName}, then armed strangers spill into the road.`,
+        bandits: [
+          {
+            id: `bandit.${areaId}.1`,
+            name: 'Rusk',
+            title: 'road bandit',
+            entryLine: `You should not have come to ${areaName}, traveler.`,
+            threatLines: [`${areaName} keeps what it catches. Drop your pride and run.`],
+            emotion: 'angry'
+          }
+        ],
+        memoryWrites: [],
+        safetyFlags: []
+      });
+    }
+    if (kind === 'mysteriousBeing') {
+      return JSON.stringify({
+        kind,
+        title: `Mist at ${areaName}`,
+        locationId: areaId,
+        locationName: areaName,
+        triggerRadius: 300,
+        introText: `Mist curls around ${areaName} and gathers into a watching shape.`,
+        being: {
+          id: `being.${areaId}`,
+          name: 'The Pale Listener',
+          description: `A thin figure shaped by the rumors around ${areaName}.`,
+          greeting: `You stand where ${areaName} remembers every footstep.`,
+          speechStyle: 'Soft, watchful, concrete, never fully explaining itself.',
+          mood: 'curious'
+        },
+        memoryWrites: [],
+        safetyFlags: []
+      });
+    }
+    return JSON.stringify({
+      kind,
+      title: `Sounds near ${areaName}`,
+      locationId: areaId,
+      locationName: areaName,
+      triggerRadius: 300,
+      introText: `${areaName} answers your approach with sound instead of speech.`,
+      sounds: [
+        { text: `Wood knocks twice inside ${areaName}, though nothing moves.`, emotion: 'suspicious' },
+        { text: 'Something under the threshold exhales cold dust.', emotion: 'afraid' }
+      ],
+      memoryWrites: [],
       safetyFlags: []
     });
   }

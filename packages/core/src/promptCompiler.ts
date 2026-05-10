@@ -1,4 +1,4 @@
-import type { ChatMessage, DialogueMoodAssessment, DialogueRequest, DialogueTurn, GameAIPolicies, GameAIWorldConfig, NpcDefinition, OverhearRequest, PromptCompileContext } from './types.js';
+import type { AreaEventRequest, ChatMessage, DialogueMoodAssessment, DialogueRequest, DialogueTurn, GameAIPolicies, GameAIWorldConfig, NpcDefinition, OverhearRequest, PromptCompileContext } from './types.js';
 import { detectDirectPlayerThreat } from './threats.js';
 
 export function worldSystemPrompt(world: GameAIWorldConfig, policies: GameAIPolicies): string {
@@ -182,6 +182,43 @@ export function compileOverhearPrompt(npc: NpcDefinition, request: OverhearReque
         `Scene: ${JSON.stringify(request.scene)}`,
         request.topic ? `Topic: ${request.topic}` : 'Topic: nearby travel, weather, local talk, or work.',
         ctx.memory.length ? `Relevant memory:\n${ctx.memory.map((line) => `- ${line}`).join('\n')}` : ''
+      ].filter(Boolean).join('\n')
+    }
+  ];
+}
+
+export function compileAreaEventPrompt(request: AreaEventRequest, ctx: PromptCompileContext): ChatMessage[] {
+  const allowedKinds = request.allowedKinds?.length ? request.allowedKinds.join(', ') : 'banditAmbush, mysteriousBeing, strangeSounds';
+  return [
+    { role: 'system', content: worldSystemPrompt(ctx.world, ctx.policies) },
+    {
+      role: 'user',
+      content: [
+        'Recipe: world.areaEvent',
+        'Return one JSON object describing a game-safe area event for a special building trigger.',
+        'Choose exactly one kind from the allowed kinds.',
+        'Allowed kinds:',
+        '- banditAmbush: 1-3 bandits run out and speak context-specific threats. They may threaten violence, but do not decide combat damage, rewards, inventory, or quest completion.',
+        '- mysteriousBeing: mist forms and a building-specific being appears. It can speak, but cannot grant powers, rewards, or reveal hidden causes as fact.',
+        '- strangeSounds: the player hears local, sensory sounds near the building. No character interaction.',
+        'The output is a proposal for the game to execute. It must not directly mutate state.',
+        'Make the event tightly specific to the building name, kind, lore, rumor, biome, and visible features.',
+        'If kind is banditAmbush, every bandit entryLine or threatLines must name the building or area. Include a rough line like "You should not have come to <building>" but make it fit the location.',
+        'If kind is mysteriousBeing, style the being around the building. A mill being should not feel like a tower being.',
+        'If kind is strangeSounds, write 2-4 short sound lines, like ambient overheard content without an NPC conversation.',
+        'Keep all player-facing text concise and concrete. Avoid vague prophecy unless grounded in the building.',
+        'Use triggerRadius between 220 and 420.',
+        'Safety flags are usually [].',
+        '',
+        `Allowed event kinds: ${allowedKinds}`,
+        `Area: ${JSON.stringify(request.area)}`,
+        `Scene: ${JSON.stringify(request.scene)}`,
+        `Player: ${JSON.stringify(request.player ?? {})}`,
+        request.recentEvents?.length ? `Recent area events this session: ${request.recentEvents.join(' | ')}` : 'Recent area events this session: none.',
+        ctx.memory.length ? `Relevant world memory:\n${ctx.memory.map((line) => `- ${line}`).join('\n')}` : '',
+        '',
+        'Output shape:',
+        '{"kind":"banditAmbush|mysteriousBeing|strangeSounds","title":"short title","locationId":"area id","locationName":"area name","triggerRadius":300,"introText":"short narration","bandits":[...],"being":{...},"sounds":[...],"memoryWrites":[],"safetyFlags":[]}'
       ].filter(Boolean).join('\n')
     }
   ];

@@ -1,7 +1,8 @@
-import type { DialogueTurn, OverheardExchange } from '@game-llm/core';
+import type { AreaEvent, DialogueTurn, OverheardExchange } from '@game-llm/core';
 import type { GameAIPreGenerateJob } from '@game-llm/electron';
 import { AmbientDirector, ambientPairKey } from './ambientDirector.js';
 import { getGameAI } from './aiClient.js';
+import { areaEventCacheKey, areaEventNpcFromBeing, areaEventNpcsFromBandits, createAreaEventRequest, type AreaEventActor, type AreaEventState } from './areaEvents.js';
 import { canNpcStand as canNpcStandInWorld, findSafeSpawn as findSafeSpawnInWorld, resolvePlayerMove as resolvePlayerMoveInWorld, staticCollisionAt as staticCollisionAtInWorld } from './collision.js';
 import { DialogueController } from './dialogueController.js';
 import { diagnosticGpuUsage, diagnosticTrend, drawDiagnosticsGraph as drawDiagnosticsGraphCanvas, formatBytes, rendererMemoryInfo } from './diagnosticsHud.js';
@@ -134,6 +135,11 @@ let conversation: LogLine[] = [];
 let bubbles: Bubble[] = [];
 let ambientMeetups: AmbientMeetup[] = [];
 let constables: Constable[] = [];
+let areaEventActors: AreaEventActor[] = [];
+const areaEventStates = new Map<string, AreaEventState>(landmarks.map((landmark) => [landmark.id, {
+  triggered: false,
+  inFlight: false
+}]));
 const ambientDirector = new AmbientDirector({ maxSpeakers: 2 });
 let footsteps: Footstep[] = [];
 let lastFootstepAt = 0;
@@ -173,11 +179,10 @@ hud.innerHTML = `
       <strong>The World</strong>
       <span id="provider-line"></span>
     </div>
-    <div class="meters">
-      <span id="fps-pill" class="fps-pill">-- fps</span>
-      <span id="region-line"></span>
-      <span id="coord-line"></span>
-    </div>
+  </div>
+  <div class="location-chip">
+    <span id="region-line"></span>
+    <strong id="coord-line"></strong>
   </div>
   <div id="interaction" class="interaction"></div>
   <aside class="minimap-panel">
@@ -230,14 +235,35 @@ hud.innerHTML = `
     </div>
   </aside>
   <section id="dialogue" class="dialogue hidden">
-    <header>
-      <div>
-        <strong id="dialogue-name"></strong>
-        <span id="dialogue-role"></span>
-      </div>
-      <button id="dialogue-close" type="button">Close</button>
+    <header class="dialogue-header">
+      <strong>Conversation</strong>
+      <button id="dialogue-close" type="button" aria-label="Close conversation">Close</button>
     </header>
+    <div class="dialogue-portraits">
+      <div class="speaker-card npc-speaker">
+        <div id="dialogue-npc-avatar" class="speaker-avatar"></div>
+        <div>
+          <strong id="dialogue-name"></strong>
+          <span id="dialogue-role"></span>
+        </div>
+      </div>
+      <div class="speaker-card player-speaker">
+        <div class="speaker-avatar">You</div>
+        <div>
+          <strong>You</strong>
+          <span>traveler</span>
+        </div>
+      </div>
+    </div>
     <div id="dialogue-log" class="dialogue-log"></div>
+    <div id="dialogue-thinking" class="dialogue-thinking hidden" aria-live="polite">
+      <div>
+        <span></span>
+        <span></span>
+        <span></span>
+      </div>
+      <p>Thinking</p>
+    </div>
     <form id="dialogue-form">
       <input id="dialogue-input" autocomplete="off" maxlength="240" />
       <button id="dialogue-send" type="submit">Send</button>
@@ -262,7 +288,6 @@ const providerEl = document.querySelector<HTMLSpanElement>('#provider-line')!;
 const warmupEl = document.querySelector<HTMLDivElement>('#warmup-line')!;
 const traceEl = document.querySelector<HTMLDivElement>('#trace-line')!;
 const traceDetailEl = document.querySelector<HTMLPreElement>('#trace-detail')!;
-const fpsPillEl = document.querySelector<HTMLElement>('#fps-pill')!;
 const diagModelEl = document.querySelector<HTMLElement>('#diag-model')!;
 const diagCpuEl = document.querySelector<HTMLElement>('#diag-cpu')!;
 const diagGpuEl = document.querySelector<HTMLElement>('#diag-gpu')!;
@@ -301,9 +326,11 @@ const panelMachine = document.querySelector<HTMLElement>('#panel-machine')!;
 const panelTrace = document.querySelector<HTMLElement>('#panel-trace')!;
 const panelPerf = document.querySelector<HTMLElement>('#panel-perf')!;
 const dialogueEl = document.querySelector<HTMLElement>('#dialogue')!;
+const dialogueNpcAvatarEl = document.querySelector<HTMLElement>('#dialogue-npc-avatar')!;
 const dialogueNameEl = document.querySelector<HTMLElement>('#dialogue-name')!;
 const dialogueRoleEl = document.querySelector<HTMLElement>('#dialogue-role')!;
 const dialogueLogEl = document.querySelector<HTMLDivElement>('#dialogue-log')!;
+const dialogueThinkingEl = document.querySelector<HTMLElement>('#dialogue-thinking')!;
 const dialogueForm = document.querySelector<HTMLFormElement>('#dialogue-form')!;
 const dialogueInput = document.querySelector<HTMLInputElement>('#dialogue-input')!;
 const dialogueSend = document.querySelector<HTMLButtonElement>('#dialogue-send')!;
@@ -361,15 +388,17 @@ dialogueForm.addEventListener('submit', (event) => {
   const text = dialogueInput.value.trim();
   if (!text || busy || ended) return;
   dialogueInput.value = '';
+  if (isGoodbyeText(text)) {
+    conversation.push({ speaker: 'You', text, kind: 'player' });
+    renderDialogue();
+    window.setTimeout(closeConversation, 220);
+    return;
+  }
   void sendToNpc(text);
 });
 dialogueGoodbye.addEventListener('click', () => {
   if (!activeNpc || busy) return;
-  if (ended) {
-    closeConversation();
-    return;
-  }
-  void sendToNpc('Goodbye.');
+  closeConversation();
 });
 dialogueClose.addEventListener('click', closeConversation);
 traceToggle.addEventListener('click', () => {
@@ -516,6 +545,76 @@ async function pregenerateAmbientCache(modelLabel: string): Promise<void> {
   }
 }
 
+async function preloadAreaEvents(modelLabel: string): Promise<void> {
+  traceLine = `area events / preparing ${landmarks.length} landmark triggers`;
+  providerLine = `${providerBaseLine} / preparing area events`;
+  renderHud();
+  let generated = 0;
+  let failed = 0;
+  for (const landmark of landmarks) {
+    const event = await generateAreaEvent(landmark, true);
+    if (event) {
+      generated += 1;
+    } else {
+      failed += 1;
+    }
+    traceLine = `area events / ${generated} ready, ${failed} failed`;
+    providerLine = `${providerBaseLine} / area events ${generated}/${landmarks.length}`;
+    renderHud();
+  }
+  providerLine = `${providerBaseLine} / area events ${generated}/${landmarks.length}`;
+  warmupLine = `warm / ${modelLabel} / area events ${generated}/${landmarks.length}`;
+  renderHud();
+}
+
+async function generateAreaEvent(landmark: typeof landmarks[number], refresh: boolean): Promise<AreaEvent | undefined> {
+  const state = areaEventStates.get(landmark.id);
+  if (state?.inFlight) return state.event;
+  areaEventStates.set(landmark.id, {
+    triggered: state?.triggered ?? false,
+    inFlight: true,
+    event: state?.event,
+    failed: undefined
+  });
+  try {
+    const event = await ai.areaEvent({
+      request: createAreaEventRequest(landmark, sceneAt(landmark), triggeredAreaEventTitles()),
+      options: {
+        cacheKey: areaEventCacheKey(landmark),
+        refresh,
+        timeoutMs: 30_000
+      }
+    });
+    if (event.trace?.fallback) {
+      areaEventStates.set(landmark.id, {
+        triggered: state?.triggered ?? false,
+        inFlight: false,
+        event: state?.event,
+        failed: event.safetyFlags[0]?.message ?? 'Gemma area event fallback'
+      });
+      return undefined;
+    }
+    areaEventStates.set(landmark.id, {
+      triggered: state?.triggered ?? false,
+      inFlight: false,
+      event
+    });
+    traceLine = `${event.trace?.recipeId ?? 'world.areaEvent'} / ${event.trace?.providerId ?? 'unknown'} / ${landmark.name}`;
+    traceDetail = event.trace?.rawText.slice(0, 420) ?? '';
+    return event;
+  } catch (error) {
+    areaEventStates.set(landmark.id, {
+      triggered: state?.triggered ?? false,
+      inFlight: false,
+      event: state?.event,
+      failed: errorMessage(error)
+    });
+    traceLine = `area event failed / ${landmark.name} / ${errorMessage(error)}`;
+    traceDetail = '';
+    return undefined;
+  }
+}
+
 function buildPregenerationJobs(): GameAIPreGenerateJob[] {
   const npcs = pregenerationNpcPool();
   const open = npcs.filter((npc) => npc.conversationPolicy === 'open');
@@ -647,16 +746,19 @@ function update(dt: number, now: number): void {
 
   bubbles = bubbles.filter((bubble) => bubble.expiresAt > now);
   footsteps = footsteps.filter((footstep) => footstep.expiresAt > now);
+  updateAreaEventActors(dt, now);
   updateConstables(dt, now);
   if (activeNpc && activeNpcPosition && distance(activeNpcPosition, player) > 260) {
     closeConversation();
   }
-  clickableNpcs = nearby
+  const nearbyActors = [...nearby, ...areaEventActors.filter((actor) => distance(actor, player) < 760)];
+  clickableNpcs = nearbyActors
     .filter((npc) => npc.conversationPolicy === 'open' && distance(npcPosition(npc, now, nearby), player) < 170)
     .sort((a, b) => distance(npcPosition(a, now, nearby), player) - distance(npcPosition(b, now, nearby), player));
-  nearestNpc = nearby
+  nearestNpc = nearbyActors
     .filter((npc) => npc.conversationPolicy === 'open' && distance(npcPosition(npc, now, nearby), player) < 165)
     .sort((a, b) => distance(npcPosition(a, now, nearby), player) - distance(npcPosition(b, now, nearby), player))[0];
+  maybeTriggerAreaEvent(now);
   maybeRequestAmbient(now, nearby);
   renderHud();
 }
@@ -666,7 +768,10 @@ function draw(now: number): void {
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.clearRect(0, 0, cssWidth, cssHeight);
   drawStaticWorld({ ctx, world, camera, width: cssWidth, height: cssHeight });
-  const npcs = world.npcsNear(player.x, player.y, Math.max(cssWidth, cssHeight));
+  const npcs = [
+    ...world.npcsNear(player.x, player.y, Math.max(cssWidth, cssHeight)),
+    ...areaEventActors.filter((actor) => distance(actor, player) < Math.max(cssWidth, cssHeight))
+  ];
   drawActors({
     ctx,
     camera,
@@ -704,6 +809,9 @@ function maybeAddFootstep(now: number): void {
 }
 
 function npcPosition(npc: GeneratedNpc, now: number, crowd: GeneratedNpc[] = []): Vec2 {
+  if (npc.id.startsWith('area.')) {
+    return { x: npc.x, y: npc.y };
+  }
   if (activeNpc?.id === npc.id && activeNpcPosition) {
     return activeNpcPosition;
   }
@@ -758,6 +866,165 @@ function npcFallbackPosition(npc: GeneratedNpc): Vec2 {
 
 function canNpcStand(point: Vec2): boolean {
   return canNpcStandInWorld(point, world);
+}
+
+function updateAreaEventActors(dt: number, now: number): void {
+  areaEventActors = areaEventActors.filter((actor) => actor.expiresAt > now);
+  for (const actor of areaEventActors) {
+    if (!actor.target) continue;
+    const target = { x: player.x, y: player.y };
+    actor.target = target;
+    const gap = distance(actor, target);
+    if (gap > 74) {
+      const speed = actor.persona.mood === 'hostile' ? 118 : 52;
+      const nx = (target.x - actor.x) / Math.max(1, gap);
+      const ny = (target.y - actor.y) / Math.max(1, gap);
+      const next = clampToMap({
+        x: actor.x + nx * speed * dt,
+        y: actor.y + ny * speed * dt
+      }, 24);
+      if (!staticCollisionAtInWorld(next, 16, world)) {
+        actor.x = next.x;
+        actor.y = next.y;
+      }
+    }
+    if (gap < 180 && now - actor.lastBarkAt > 8_000) {
+      actor.lastBarkAt = now;
+      const lines = actor.persona.knows ?? [];
+      const line = lines[(Math.floor(now / 1000) + actor.wanderSeed) % Math.max(1, lines.length)] ?? 'Back away.';
+      bubbles.push({
+        id: `${actor.id}:threat:${now}`,
+        npcId: actor.id,
+        x: actor.x,
+        y: actor.y,
+        text: line,
+        startsAt: now,
+        expiresAt: now + 4_400,
+        kind: 'reaction'
+      });
+    }
+  }
+}
+
+function maybeTriggerAreaEvent(now: number): void {
+  if (activeNpc) return;
+  for (const landmark of landmarks) {
+    const state = areaEventStates.get(landmark.id);
+    if (!state || state.triggered) continue;
+    const radius = state.event?.triggerRadius ?? Math.max(240, Math.min(390, Math.max(landmark.width, landmark.height) + 170));
+    if (distance(player, landmark) > radius) continue;
+    if (state.event) {
+      executeAreaEvent(landmark, state.event, now);
+      return;
+    }
+    if (!state.inFlight) {
+      bubbles.push({
+        id: `area:${landmark.id}:loading:${now}`,
+        npcId: `area:${landmark.id}`,
+        x: landmark.x,
+        y: landmark.y,
+        text: `${landmark.name} stirs as Gemma shapes an event...`,
+        startsAt: now,
+        expiresAt: now + 5_200,
+        kind: 'ambient'
+      });
+      void generateAreaEvent(landmark, true).then((event) => {
+        if (event && !areaEventStates.get(landmark.id)?.triggered && distance(player, landmark) <= event.triggerRadius + 40) {
+          executeAreaEvent(landmark, event, performance.now());
+        }
+      });
+    }
+    return;
+  }
+}
+
+function executeAreaEvent(landmark: typeof landmarks[number], event: AreaEvent, now: number): void {
+  const state = areaEventStates.get(landmark.id);
+  areaEventStates.set(landmark.id, {
+    triggered: true,
+    inFlight: false,
+    event,
+    failed: state?.failed
+  });
+  traceLine = `area event / ${event.kind} / ${event.locationName}`;
+  traceDetail = event.trace?.rawText.slice(0, 420) ?? '';
+  if (event.kind === 'banditAmbush') {
+    bubbles.push({
+      id: `area:${landmark.id}:intro:${now}`,
+      npcId: `area:${landmark.id}`,
+      x: landmark.x,
+      y: landmark.y,
+      text: event.introText,
+      startsAt: now,
+      expiresAt: now + 3_400,
+      kind: 'ambient'
+    });
+    const bandits = areaEventNpcsFromBandits(event, landmark, player, now);
+    areaEventActors.push(...bandits);
+    for (const [index, bandit] of bandits.entries()) {
+      const text = event.bandits?.[index]?.entryLine ?? bandit.persona.knows?.[0] ?? `You should not have come to ${event.locationName}.`;
+      bubbles.push({
+        id: `${bandit.id}:entry:${now}`,
+        npcId: bandit.id,
+        x: bandit.x,
+        y: bandit.y,
+        text,
+        startsAt: now + 850 + index * 700,
+        expiresAt: now + 5_800 + index * 700,
+        kind: 'reaction'
+      });
+    }
+    return;
+  }
+  if (event.kind === 'mysteriousBeing') {
+    const being = areaEventNpcFromBeing(event, {
+      x: landmark.x,
+      y: landmark.y + Math.max(landmark.height * 0.5, 72)
+    });
+    if (!being) return;
+    areaEventActors.push(being);
+    activeNpc = being;
+    activeNpcPosition = { x: being.x, y: being.y };
+    busy = false;
+    ended = false;
+    conversation = [
+      { speaker: being.persona.name, text: event.being?.greeting ?? event.introText, kind: 'npc' }
+    ];
+    interactionKey = '';
+    renderDialogue();
+    return;
+  }
+  if (event.kind === 'strangeSounds') {
+    bubbles.push({
+      id: `area:${landmark.id}:intro:${now}`,
+      npcId: `area:${landmark.id}`,
+      x: landmark.x,
+      y: landmark.y,
+      text: event.introText,
+      startsAt: now,
+      expiresAt: now + 2_700,
+      kind: 'ambient'
+    });
+    for (const [index, sound] of (event.sounds ?? []).entries()) {
+      const startsAt = now + 3_000 + index * 2_800;
+      bubbles.push({
+        id: `area:${landmark.id}:sound:${index}:${now}`,
+        npcId: `area:${landmark.id}`,
+        x: landmark.x,
+        y: landmark.y,
+        text: sound.text,
+        startsAt,
+        expiresAt: startsAt + 2_600,
+        kind: 'ambient'
+      });
+    }
+  }
+}
+
+function triggeredAreaEventTitles(): string[] {
+  return [...areaEventStates.values()]
+    .filter((state) => state.triggered && state.event)
+    .map((state) => `${state.event!.locationName}: ${state.event!.title}`);
 }
 
 function updateConstables(dt: number, now: number): void {
@@ -926,7 +1193,6 @@ function renderHud(): void {
   warmupEl.textContent = warmupLine;
   traceEl.textContent = traceLine;
   traceDetailEl.textContent = traceDetail;
-  fpsPillEl.textContent = fps > 0 ? `${fps} fps` : '-- fps';
   traceToggle.textContent = traceOpen ? 'Diagnostics open' : 'Diagnostics';
   traceToggle.setAttribute('aria-expanded', String(traceOpen));
   devtoolsToggle.textContent = traceOpen ? 'Collapse' : 'Expand';
@@ -960,6 +1226,7 @@ function renderHud(): void {
   if (key !== interactionKey) {
     interactionKey = key;
     if (clickableNpcs.length && !activeNpc) {
+      interactionEl.classList.remove('hidden');
       interactionEl.classList.remove('empty');
       const primary = clickableNpcs[0]!;
       const session = dialogueController.sessionFor(primary);
@@ -971,8 +1238,9 @@ function renderHud(): void {
         </div>
       `;
     } else {
+      interactionEl.classList.add('hidden');
       interactionEl.classList.add('empty');
-      interactionEl.innerHTML = `<div><strong>${escapeHtml(regionName(player.x, player.y))}</strong><span>open road</span></div>`;
+      interactionEl.innerHTML = '';
     }
   }
 }
@@ -989,7 +1257,9 @@ function dismissBootScreen(): void {
   const modelLabel = pendingAmbientCacheModelLabel;
   pendingAmbientCacheModelLabel = undefined;
   if (modelLabel) {
-    window.setTimeout(() => void pregenerateAmbientCache(modelLabel), 8_000);
+    window.setTimeout(() => {
+      void preloadAreaEvents(modelLabel).finally(() => void pregenerateAmbientCache(modelLabel));
+    }, 2_000);
   }
   renderHud();
 }
@@ -1033,6 +1303,7 @@ function renderDialogue(): void {
   }
   dialogueEl.classList.remove('hidden');
   const session = dialogueController.sessionFor(activeNpc);
+  dialogueNpcAvatarEl.textContent = initials(activeNpc.persona.name);
   dialogueNameEl.textContent = activeNpc.persona.name;
   dialogueRoleEl.textContent = `${activeNpc.persona.role} / ${session.mood} / attitude ${session.disposition}`;
   dialogueLogEl.innerHTML = conversation.map((line) => `
@@ -1047,6 +1318,7 @@ function renderDialogue(): void {
   dialogueGoodbye.disabled = busy;
   dialogueGoodbye.textContent = ended ? 'Leave' : 'Goodbye';
   dialogueInput.placeholder = busy ? 'Waiting for reply...' : ended ? 'Conversation ended' : 'Message';
+  dialogueThinkingEl.classList.toggle('hidden', !busy);
 }
 
 async function startConversation(npc: GeneratedNpc): Promise<void> {
@@ -1208,6 +1480,14 @@ function applyDialogueTurn(npc: GeneratedNpc, turn: DialogueTurn): void {
     spawnConstables(npc, turn.action.reason);
   }
   ended = Boolean(turn.shouldEndConversation || !turn.willTalkAgain || turn.action?.type === 'callForHelp');
+  if (ended) {
+    const closingNpcId = npc.id;
+    window.setTimeout(() => {
+      if (activeNpc?.id === closingNpcId && ended && !busy) {
+        closeConversation();
+      }
+    }, 2_400);
+  }
   if (turn.trace) {
     traceLine = `${turn.trace.recipeId} / ${turn.trace.providerId}${turn.trace.model ? ` / ${turn.trace.model}` : ''} / ${Math.round(turn.trace.latencyMs)}ms / ${turn.trace.cache}`;
     traceDetail = [
@@ -1223,6 +1503,10 @@ function applyDialogueTurn(npc: GeneratedNpc, turn: DialogueTurn): void {
 
 function shouldRunDialogueAssessment(text: string): boolean {
   return /\b(attack|burn|fight|hurt|kill|murder|rob|stab|threat|force|weapon|knife|sword|torch|die)\b/i.test(text);
+}
+
+function isGoodbyeText(text: string): boolean {
+  return /^(bye|goodbye|farewell|later|see you|i should go|i have to go)[.! ]*$/i.test(text.trim());
 }
 
 function showThinkingBubble(npc: GeneratedNpc): string {
@@ -1289,7 +1573,6 @@ function spawnConstables(npc: GeneratedNpc, reason: string): void {
 }
 
 function closeConversation(): void {
-  cancelActiveDialogueRequest();
   activeNpc = undefined;
   activeNpcPosition = undefined;
   busy = false;
@@ -1301,13 +1584,6 @@ function closeConversation(): void {
 
 function nextAiRequestId(kind: string, ownerId: string): string {
   return `${kind}:${ownerId}:${Date.now()}:${Math.random().toString(36).slice(2)}`;
-}
-
-function cancelActiveDialogueRequest(): void {
-  if (!activeDialogueRequestId) return;
-  const requestId = activeDialogueRequestId;
-  activeDialogueRequestId = undefined;
-  void ai.cancel({ requestId }).catch(() => undefined);
 }
 
 function maybeRequestAmbient(now: number, nearby: GeneratedNpc[]): void {
@@ -1670,6 +1946,15 @@ function escapeHtml(value: string): string {
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;');
+}
+
+function initials(value: string): string {
+  return value
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase() ?? '')
+    .join('') || '?';
 }
 
 function errorMessage(error: unknown): string {

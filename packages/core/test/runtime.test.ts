@@ -429,4 +429,35 @@ describe('GameAI runtime', () => {
     expect(actionPrompt).not.toContain('"rawText"');
     expect(actionPrompt).not.toContain('npc.dialogue.assessMood');
   });
+
+  it('generates typed area events for special building triggers', async () => {
+    const ai = createGameAI({
+      provider: new MockGameAIProvider(),
+      world: { id: 'test-world', lore: ['The Old Mill turns without wind.'] },
+      runtime: { mode: 'mock', cache: 'session' }
+    });
+
+    const event = await ai.areaEvent({
+      area: {
+        id: 'old-mill',
+        name: 'The Old Mill',
+        kind: 'mill',
+        lore: 'The Old Mill turns without wind.',
+        rumor: 'folk lower their voices near the mill'
+      },
+      scene: {
+        location: 'The Old Mill',
+        visibleFeatures: ['The Old Mill']
+      }
+    }, {
+      cacheKey: 'area-event:old-mill:test',
+      refresh: true
+    });
+
+    expect(['banditAmbush', 'mysteriousBeing', 'strangeSounds']).toContain(event.kind);
+    expect(event.locationId).toBe('old-mill');
+    expect(event.locationName).toBe('The Old Mill');
+    expect(event.trace?.recipeId).toBe('world.areaEvent');
+    expect(event.trace?.fallback).not.toBe(true);
+  });
 });

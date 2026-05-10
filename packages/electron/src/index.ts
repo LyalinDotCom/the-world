@@ -1,11 +1,16 @@
 import type { ContextBridge, IpcMain, IpcRenderer } from 'electron';
 import {
+  AreaEventGenerationOptionsSchema,
+  AreaEventRequestSchema,
   BarkRequestSchema,
   DialogueRequestSchema,
   NpcDefinitionSchema,
   NpcGenerationOptionsSchema,
   OverhearRequestSchema,
   z,
+  type AreaEvent,
+  type AreaEventGenerationOptions,
+  type AreaEventRequest,
   type BarkRequest,
   type BarkTurn,
   type DialogueRequest,
@@ -23,6 +28,7 @@ export const defaultGameAiIpcChannel = 'game-ai';
 export interface GameAIIpcHandlers {
   health(): Promise<ProviderHealth>;
   warmup(): Promise<ProviderHealth>;
+  areaEvent(payload: GameAIAreaEventPayload): Promise<AreaEvent>;
   dialogue(payload: GameAIDialoguePayload): Promise<DialogueTurn>;
   bark(payload: GameAIBarkPayload): Promise<BarkTurn>;
   overhear(payload: GameAIOverhearPayload): Promise<OverheardExchange>;
@@ -35,6 +41,12 @@ export interface GameAIDialoguePayload {
   npc: NpcDefinition;
   request: DialogueRequest;
   options?: NpcGenerationOptions;
+}
+
+export interface GameAIAreaEventPayload {
+  requestId?: string;
+  request: AreaEventRequest;
+  options?: AreaEventGenerationOptions;
 }
 
 export interface GameAIBarkPayload {
@@ -52,6 +64,7 @@ export interface GameAIOverhearPayload {
 }
 
 export type GameAIPreGenerateJob =
+  | ({ type: 'areaEvent' } & GameAIAreaEventPayload)
   | ({ type: 'dialogue' } & GameAIDialoguePayload)
   | ({ type: 'bark' } & GameAIBarkPayload)
   | ({ type: 'overhear' } & GameAIOverhearPayload);
@@ -89,6 +102,12 @@ const GameAIDialoguePayloadSchema = z.object({
   options: NpcGenerationOptionsSchema.optional()
 });
 
+const GameAIAreaEventPayloadSchema = z.object({
+  requestId: z.string().min(1).max(160).optional(),
+  request: AreaEventRequestSchema,
+  options: AreaEventGenerationOptionsSchema.optional()
+});
+
 const GameAIBarkPayloadSchema = z.object({
   requestId: z.string().min(1).max(160).optional(),
   npc: NpcDefinitionSchema,
@@ -104,6 +123,7 @@ const GameAIOverhearPayloadSchema = z.object({
 });
 
 const GameAIPreGenerateJobSchema = z.discriminatedUnion('type', [
+  GameAIAreaEventPayloadSchema.extend({ type: z.literal('areaEvent') }),
   GameAIDialoguePayloadSchema.extend({ type: z.literal('dialogue') }),
   GameAIBarkPayloadSchema.extend({ type: z.literal('bark') }),
   GameAIOverhearPayloadSchema.extend({ type: z.literal('overhear') })
@@ -145,6 +165,10 @@ export function registerGameAIIpc(ipcMain: IpcMain, ai: GameAI, options: Registe
       const typed = parsePayload(GameAIDialoguePayloadSchema, payload, 'dialogue payload');
       return await runCancelable(requestControllers, typed, (options) => ai.npc(typed.npc).respond(typed.request, options));
     },
+    areaEvent: async (payload) => {
+      const typed = parsePayload(GameAIAreaEventPayloadSchema, payload, 'areaEvent payload');
+      return await runCancelable(requestControllers, typed, (options) => ai.areaEvent(typed.request, options));
+    },
     bark: async (payload) => {
       const typed = parsePayload(GameAIBarkPayloadSchema, payload, 'bark payload');
       return await runCancelable(requestControllers, typed, (options) => ai.npc(typed.npc).bark(typed.request, options));
@@ -180,6 +204,9 @@ export function registerGameAIIpc(ipcMain: IpcMain, ai: GameAI, options: Registe
         };
         if (job.type === 'dialogue') {
           return await ai.npc(job.npc).respond(job.request, options);
+        }
+        if (job.type === 'areaEvent') {
+          return await ai.areaEvent(job.request, options);
         }
         if (job.type === 'bark') {
           return await ai.npc(job.npc).bark(job.request, options);
@@ -232,6 +259,7 @@ export function createGameAIPreloadApi(ipcRenderer: IpcRenderer, channel = defau
   return {
     health: async () => await ipcRenderer.invoke(`${channel}:health`) as ProviderHealth,
     warmup: async () => await ipcRenderer.invoke(`${channel}:warmup`) as ProviderHealth,
+    areaEvent: async (payload) => await ipcRenderer.invoke(`${channel}:areaEvent`, payload) as AreaEvent,
     dialogue: async (payload) => await ipcRenderer.invoke(`${channel}:dialogue`, payload) as DialogueTurn,
     bark: async (payload) => await ipcRenderer.invoke(`${channel}:bark`, payload) as BarkTurn,
     overhear: async (payload) => await ipcRenderer.invoke(`${channel}:overhear`, payload) as OverheardExchange,
@@ -254,10 +282,10 @@ function parsePayload<T>(schema: z.ZodType<T>, payload: unknown, label: string):
   throw new TypeError(`Invalid ${label}: ${details}`);
 }
 
-async function runCancelable<T>(
+async function runCancelable<T, TOptions extends object>(
   requestControllers: Map<string, AbortController>,
-  payload: { requestId?: string; options?: NpcGenerationOptions },
-  run: (options: NpcGenerationOptions | undefined) => Promise<T>
+  payload: { requestId?: string; options?: TOptions },
+  run: (options: TOptions | undefined) => Promise<T>
 ): Promise<T> {
   const requestId = payload.requestId;
   if (!requestId) {
@@ -271,7 +299,7 @@ async function runCancelable<T>(
     return await run({
       ...payload.options,
       signal: controller.signal
-    });
+    } as TOptions);
   } finally {
     if (requestControllers.get(requestId) === controller) {
       requestControllers.delete(requestId);

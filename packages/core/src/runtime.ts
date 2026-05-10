@@ -4,9 +4,9 @@ import { parseModelJson } from './json.js';
 import { MemoryStore } from './memory.js';
 import { MockGameAIProvider } from './mockProvider.js';
 import { repairRecipeValue } from './repair.js';
-import { defaultRecipes, npcBarkRecipe, npcDialogueActionRecipe, npcDialogueMoodAssessmentRecipe, npcDialogueRecipe, npcOverhearRecipe, type NpcBarkRecipeInput, type NpcDialogueActionRecipeInput, type NpcDialogueMoodAssessmentRecipeInput, type NpcDialogueRecipeInput, type NpcOverhearRecipeInput } from './recipes.js';
+import { areaEventRecipe, defaultRecipes, npcBarkRecipe, npcDialogueActionRecipe, npcDialogueMoodAssessmentRecipe, npcDialogueRecipe, npcOverhearRecipe, type AreaEventRecipeInput, type NpcBarkRecipeInput, type NpcDialogueActionRecipeInput, type NpcDialogueMoodAssessmentRecipeInput, type NpcDialogueRecipeInput, type NpcOverhearRecipeInput } from './recipes.js';
 import { detectDirectPlayerThreat } from './threats.js';
-import type { BarkRequest, BarkTurn, DebugTrace, DialogueActionDecision, DialogueMoodAssessment, DialogueRequest, DialogueTurn, GameAIConfig, GameAIProvider, NpcDefinition, NpcGenerationOptions, OverheardExchange, OverhearRequest, PromptCompileContext, RecipeDefinition, RunRecipeOptions } from './types.js';
+import type { AreaEvent, AreaEventGenerationOptions, AreaEventRequest, BarkRequest, BarkTurn, DebugTrace, DialogueActionDecision, DialogueMoodAssessment, DialogueRequest, DialogueTurn, GameAIConfig, GameAIProvider, NpcDefinition, NpcGenerationOptions, OverheardExchange, OverhearRequest, PromptCompileContext, RecipeDefinition, RunRecipeOptions } from './types.js';
 
 type AnyRecipe = RecipeDefinition<unknown, unknown>;
 
@@ -29,6 +29,17 @@ export class GameAI {
 
   registerRecipe<TInput, TOutput>(recipe: RecipeDefinition<TInput, TOutput>): void {
     this.recipes.set(recipe.id, recipe as AnyRecipe);
+  }
+
+  async areaEvent(request: AreaEventRequest, options: AreaEventGenerationOptions = {}): Promise<AreaEvent> {
+    return await this.run<AreaEventRecipeInput, AreaEvent>(areaEventRecipe.id, {
+      request
+    }, {
+      cacheKey: options.cacheKey ?? `area-event:${request.area.id}:${request.scene.location}`,
+      cacheMode: cacheModeFromOptions(options),
+      timeoutMs: options.timeoutMs ?? 18_000,
+      signal: options.signal
+    });
   }
 
   async run<TInput, TOutput>(recipeId: string, input: TInput, options: RunRecipeOptions = {}): Promise<TOutput> {
@@ -319,7 +330,7 @@ function markCacheHit<TOutput>(output: TOutput): TOutput {
   return output;
 }
 
-function cacheModeFromOptions(options: NpcGenerationOptions): RunRecipeOptions['cacheMode'] {
+function cacheModeFromOptions(options: { cacheOnly?: boolean; refresh?: boolean }): RunRecipeOptions['cacheMode'] {
   if (options.cacheOnly) return 'cache-only';
   if (options.refresh) return 'refresh';
   return undefined;

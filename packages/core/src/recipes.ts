@@ -1,6 +1,6 @@
-import type { BarkRequest, BarkTurn, DialogueActionDecision, DialogueMoodAssessment, DialogueRequest, DialogueTurn, NpcDefinition, OverheardExchange, OverhearRequest, RecipeDefinition } from './types.js';
-import { BarkTurnSchema, DialogueActionDecisionSchema, DialogueMoodAssessmentSchema, DialogueTurnSchema, OverheardExchangeSchema, barkTurnJsonSchema, dialogueActionDecisionJsonSchema, dialogueMoodAssessmentJsonSchema, dialogueTurnJsonSchema, overheardExchangeJsonSchema } from './schemas.js';
-import { compileBarkPrompt, compileDialogueActionPrompt, compileDialogueMoodAssessmentPrompt, compileDialoguePrompt, compileOverhearPrompt } from './promptCompiler.js';
+import type { AreaEvent, AreaEventRequest, BarkRequest, BarkTurn, DialogueActionDecision, DialogueMoodAssessment, DialogueRequest, DialogueTurn, NpcDefinition, OverheardExchange, OverhearRequest, RecipeDefinition } from './types.js';
+import { AreaEventSchema, BarkTurnSchema, DialogueActionDecisionSchema, DialogueMoodAssessmentSchema, DialogueTurnSchema, OverheardExchangeSchema, areaEventJsonSchema, barkTurnJsonSchema, dialogueActionDecisionJsonSchema, dialogueMoodAssessmentJsonSchema, dialogueTurnJsonSchema, overheardExchangeJsonSchema } from './schemas.js';
+import { compileAreaEventPrompt, compileBarkPrompt, compileDialogueActionPrompt, compileDialogueMoodAssessmentPrompt, compileDialoguePrompt, compileOverhearPrompt } from './promptCompiler.js';
 import { detectDirectPlayerThreat } from './threats.js';
 
 export interface NpcDialogueRecipeInput {
@@ -29,6 +29,10 @@ export interface NpcBarkRecipeInput {
 export interface NpcOverhearRecipeInput {
   npc: NpcDefinition;
   request: OverhearRequest;
+}
+
+export interface AreaEventRecipeInput {
+  request: AreaEventRequest;
 }
 
 export const npcDialogueRecipe: RecipeDefinition<NpcDialogueRecipeInput, DialogueTurn> = {
@@ -163,10 +167,43 @@ export const npcOverhearRecipe: RecipeDefinition<NpcOverhearRecipeInput, Overhea
   }
 };
 
+export const areaEventRecipe: RecipeDefinition<AreaEventRecipeInput, AreaEvent> = {
+  id: 'world.areaEvent',
+  description: 'Generate a typed special-area event for a game trigger.',
+  schema: AreaEventSchema,
+  jsonSchema: areaEventJsonSchema,
+  temperature: 0.72,
+  maxTokens: 520,
+  compile(input, ctx) {
+    return compileAreaEventPrompt(input.request, ctx);
+  },
+  fallback(input, _ctx, reason) {
+    return {
+      kind: 'strangeSounds',
+      title: `${input.request.area.name} falls silent`,
+      locationId: input.request.area.id,
+      locationName: input.request.area.name,
+      triggerRadius: 280,
+      introText: `The air near ${input.request.area.name} tightens, but no clear event takes shape.`,
+      sounds: [
+        {
+          text: `A dull sound moves through ${input.request.area.name}, then stops.`,
+          emotion: 'suspicious'
+        }
+      ],
+      memoryWrites: [],
+      safetyFlags: [
+        { level: 'warn', code: 'fallback.areaEvent', message: reason }
+      ]
+    };
+  }
+};
+
 export const defaultRecipes = [
   npcDialogueRecipe,
   npcDialogueMoodAssessmentRecipe,
   npcDialogueActionRecipe,
   npcBarkRecipe,
-  npcOverhearRecipe
+  npcOverhearRecipe,
+  areaEventRecipe
 ] as const;

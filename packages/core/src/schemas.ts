@@ -122,6 +122,29 @@ export const OverhearRequestSchema = z.object({
   topic: z.string().min(1).max(320).optional()
 });
 
+export const AreaEventKindSchema = z.enum(['banditAmbush', 'mysteriousBeing', 'strangeSounds']);
+
+export const AreaEventRequestSchema = z.object({
+  area: z.object({
+    id: z.string().min(1).max(120),
+    name: z.string().min(1).max(160),
+    kind: z.string().min(1).max(80),
+    lore: z.string().min(1).max(420),
+    rumor: z.string().min(1).max(240).optional()
+  }),
+  scene: SceneContextSchema,
+  player: PlayerContextSchema.optional(),
+  allowedKinds: z.array(AreaEventKindSchema).min(1).max(3).optional(),
+  recentEvents: z.array(z.string().min(1).max(180)).max(16).optional()
+});
+
+export const AreaEventGenerationOptionsSchema = z.object({
+  timeoutMs: z.number().finite().min(1).max(120_000).optional(),
+  cacheKey: z.string().min(1).max(500).optional(),
+  cacheOnly: z.boolean().optional(),
+  refresh: z.boolean().optional()
+});
+
 export const MemoryWriteSchema = z.object({
   scope: z.enum(['npc', 'player', 'world', 'scene']),
   id: z.string().optional(),
@@ -215,11 +238,53 @@ export const OverheardExchangeSchema = z.object({
   safetyFlags: z.array(SafetyFlagSchema).default([])
 });
 
+export const AreaEventSchema = z.object({
+  kind: AreaEventKindSchema,
+  title: z.string().min(1).max(120),
+  locationId: z.string().min(1).max(120),
+  locationName: z.string().min(1).max(160),
+  triggerRadius: z.number().finite().min(160).max(520),
+  introText: z.string().min(1).max(300),
+  bandits: z.array(z.object({
+    id: z.string().min(1).max(120),
+    name: z.string().min(1).max(80),
+    title: z.string().min(1).max(100),
+    entryLine: z.string().min(1).max(220),
+    threatLines: z.array(z.string().min(1).max(180)).min(1).max(3),
+    emotion: DialogueEmotionSchema
+  })).min(1).max(3).optional(),
+  being: z.object({
+    id: z.string().min(1).max(120),
+    name: z.string().min(1).max(100),
+    description: z.string().min(1).max(260),
+    greeting: z.string().min(1).max(260),
+    speechStyle: z.string().min(1).max(220),
+    mood: NpcMoodSchema
+  }).optional(),
+  sounds: z.array(z.object({
+    text: z.string().min(1).max(180),
+    emotion: DialogueEmotionSchema
+  })).min(1).max(4).optional(),
+  memoryWrites: z.array(MemoryWriteSchema).default([]),
+  safetyFlags: z.array(SafetyFlagSchema).default([])
+}).superRefine((value, ctx) => {
+  if (value.kind === 'banditAmbush' && !value.bandits?.length) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['bandits'], message: 'banditAmbush requires bandits' });
+  }
+  if (value.kind === 'mysteriousBeing' && !value.being) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['being'], message: 'mysteriousBeing requires being' });
+  }
+  if (value.kind === 'strangeSounds' && !value.sounds?.length) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['sounds'], message: 'strangeSounds requires sounds' });
+  }
+});
+
 const moodEnum = ['calm', 'curious', 'wary', 'busy', 'lonely', 'cheerful', 'afraid', 'angry', 'offended', 'hostile'];
 const emotionEnum = ['neutral', 'warm', 'angry', 'afraid', 'suspicious', 'curious', 'amused', 'sad'];
 const animationEnum = ['idle', 'point', 'laugh', 'lookAway', 'shrug', 'wave', 'thinking'];
 const dangerEnum = ['none', 'uneasy', 'threat', 'panic'];
 const actionEnum = ['none', 'endConversation', 'callForHelp'];
+const areaEventKindEnum = ['banditAmbush', 'mysteriousBeing', 'strangeSounds'];
 
 export const dialogueTurnJsonSchema = {
   type: 'object',
@@ -328,6 +393,97 @@ export const overheardExchangeJsonSchema = {
     safetyFlags: {
       type: 'array',
       items: { type: 'object' }
+    }
+  }
+};
+
+export const areaEventJsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['kind', 'title', 'locationId', 'locationName', 'triggerRadius', 'introText', 'memoryWrites', 'safetyFlags'],
+  properties: {
+    kind: { type: 'string', enum: areaEventKindEnum },
+    title: { type: 'string', minLength: 1, maxLength: 120 },
+    locationId: { type: 'string', minLength: 1, maxLength: 120 },
+    locationName: { type: 'string', minLength: 1, maxLength: 160 },
+    triggerRadius: { type: 'number', minimum: 160, maximum: 520 },
+    introText: { type: 'string', minLength: 1, maxLength: 300 },
+    bandits: {
+      type: 'array',
+      minItems: 1,
+      maxItems: 3,
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['id', 'name', 'title', 'entryLine', 'threatLines', 'emotion'],
+        properties: {
+          id: { type: 'string', minLength: 1, maxLength: 120 },
+          name: { type: 'string', minLength: 1, maxLength: 80 },
+          title: { type: 'string', minLength: 1, maxLength: 100 },
+          entryLine: { type: 'string', minLength: 1, maxLength: 220 },
+          threatLines: {
+            type: 'array',
+            minItems: 1,
+            maxItems: 3,
+            items: { type: 'string', minLength: 1, maxLength: 180 }
+          },
+          emotion: { type: 'string', enum: emotionEnum }
+        }
+      }
+    },
+    being: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['id', 'name', 'description', 'greeting', 'speechStyle', 'mood'],
+      properties: {
+        id: { type: 'string', minLength: 1, maxLength: 120 },
+        name: { type: 'string', minLength: 1, maxLength: 100 },
+        description: { type: 'string', minLength: 1, maxLength: 260 },
+        greeting: { type: 'string', minLength: 1, maxLength: 260 },
+        speechStyle: { type: 'string', minLength: 1, maxLength: 220 },
+        mood: { type: 'string', enum: moodEnum }
+      }
+    },
+    sounds: {
+      type: 'array',
+      minItems: 1,
+      maxItems: 4,
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['text', 'emotion'],
+        properties: {
+          text: { type: 'string', minLength: 1, maxLength: 180 },
+          emotion: { type: 'string', enum: emotionEnum }
+        }
+      }
+    },
+    memoryWrites: {
+      type: 'array',
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['scope', 'text', 'importance'],
+        properties: {
+          scope: { type: 'string', enum: ['npc', 'player', 'world', 'scene'] },
+          id: { type: 'string' },
+          text: { type: 'string', minLength: 1, maxLength: 240 },
+          importance: { type: 'number', minimum: 0, maximum: 1 }
+        }
+      }
+    },
+    safetyFlags: {
+      type: 'array',
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['level', 'code', 'message'],
+        properties: {
+          level: { type: 'string', enum: ['info', 'warn', 'block'] },
+          code: { type: 'string' },
+          message: { type: 'string' }
+        }
+      }
     }
   }
 };

@@ -123,6 +123,40 @@ describe('GameAI Electron IPC bridge', () => {
       }))
     })).rejects.toThrow(/Invalid preGenerate payload: .*jobs/);
   });
+
+  it('accepts area event payloads and exposes typed trigger output', async () => {
+    const ai = createGameAI({
+      provider: new MockGameAIProvider(),
+      world: { id: 'test-world' },
+      runtime: { mode: 'mock', cache: 'session' }
+    });
+    const { ipcMain, handlers } = createFakeIpcMain();
+    registerGameAIIpc(ipcMain, ai);
+
+    const result = await handlers.get('game-ai:areaEvent')!({}, {
+      request: {
+        area: {
+          id: 'old-mill',
+          name: 'The Old Mill',
+          kind: 'mill',
+          lore: 'The Old Mill turns without wind.'
+        },
+        scene: {
+          location: 'The Old Mill'
+        }
+      },
+      options: {
+        cacheKey: 'area-event:old-mill:test',
+        refresh: true
+      }
+    });
+
+    expect(result).toMatchObject({
+      locationId: 'old-mill',
+      locationName: 'The Old Mill',
+      introText: expect.any(String)
+    });
+  });
 });
 
 function abortError(): Error {
