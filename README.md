@@ -1,6 +1,6 @@
 # The World
 
-**The World** is a prototype SDK for game-native local AI plus a playable Electron demo that proves the runtime path works with Gemma through Ollama and experimental LiteRT-LM.
+**The World** is a prototype SDK for game-native local AI plus a playable Electron demo that proves the runtime path works with Gemma through Ollama, oMLX, and experimental LiteRT-LM.
 
 The core promise:
 
@@ -14,6 +14,7 @@ This repo is not mainly a game. The game is the showcase. The main product idea 
 
 - `@game-llm/core`: NPC definitions, scene context, schema-bound recipes, area-event triggers, prompt compilation, memory, cache, validation, repair, fallback behavior, cancellation, and a deterministic mock provider for tests.
 - `@game-llm/ollama`: local Ollama provider with health checks, installed-model discovery, warmup, structured JSON calls, Gemma-friendly defaults, timing/token metrics, runtime options, and `AbortSignal` support.
+- `@game-llm/omlx`: local oMLX provider for OpenAI-compatible Gemma models. Generation uses Vercel AI SDK's `@ai-sdk/openai-compatible` provider instead of owning the chat-completions client code.
 - `@game-llm/litert-lm`: experimental LiteRT-LM provider with imported-model health checks, warmup, structured output cleanup, and a persistent Python bridge that keeps the LiteRT engine loaded between requests.
 - `@game-llm/electron`: safe IPC bridge so a renderer can request dialogue, area events, barks, overheard exchanges, warmup, pregeneration, and cancellation without arbitrary model access.
 - `apps/the-world`: a playable canvas/Electron demo that uses the SDK under real runtime pressure.
@@ -165,12 +166,14 @@ The game engine still owns authority. The model can propose events; the game dec
 The playable demo asks which Gemma stack to use on startup:
 
 - **Ollama Gemma4 E4B**: the default path. It uses `gemma4:e4b`, `think:false`, `num_ctx:4096`, `num_batch:128`, and `keep_alive:30m`.
+- **oMLX Gemma4 E4B MLX 8-bit**: local OpenAI-compatible oMLX server support through AI SDK. The default endpoint is `http://127.0.0.1:8000/v1`, API key `1234`, model `gemma-4-E4B-it-MLX-8bit`.
 - **LiteRT-LM Gemma4 E4B**: experimental. It uses the imported `gemma4-e4b-litert` model through a persistent GPU bridge. Warmup and tiny prompts are fast, but the current full SDK dialogue prompt is still noticeably slower than Ollama in the game.
 
 You can skip the startup chooser with:
 
 ```sh
 THE_WORLD_AI_STACK=ollama npm start
+THE_WORLD_AI_STACK=omlx npm start
 THE_WORLD_AI_STACK=litert-lm npm start
 ```
 
@@ -183,6 +186,11 @@ THE_WORLD_THINK=false
 THE_WORLD_NUM_CTX=4096
 THE_WORLD_NUM_BATCH=128
 THE_WORLD_TIMEOUT_MS=30000
+
+THE_WORLD_OMLX_BASE_URL=http://127.0.0.1:8000/v1
+THE_WORLD_OMLX_API_KEY=1234
+THE_WORLD_OMLX_MODEL=gemma-4-E4B-it-MLX-8bit
+THE_WORLD_OMLX_STRUCTURED_OUTPUT=json_schema
 
 THE_WORLD_LITERT_MODEL=gemma4-e4b-litert
 THE_WORLD_LITERT_BACKEND=gpu
@@ -199,6 +207,8 @@ npm run import:litert-gemma4
 
 The imported LiteRT model lives under `~/.litert-lm/models`, not in this repo. The local `.venv/litert-lm` install is ignored by git.
 
+oMLX setup is external to this repo. Start oMLX with the OpenAI-compatible API enabled, then choose the oMLX stack in the startup dialog or set `THE_WORLD_AI_STACK=omlx`. `THE_WORLD_OMLX_STRUCTURED_OUTPUT` accepts `json_schema`, `json_object`, or `none`; `json_schema` uses AI SDK structured output plus the core SDK's normal JSON validation path.
+
 ## Dialogue Assessment And Actions
 
 The demo can use three small model calls for player conversations:
@@ -213,7 +223,7 @@ That split is intentional. Small local models are more reliable when each pass h
 type DialogueActionType = 'none' | 'endConversation' | 'callForHelp';
 ```
 
-In the sample game, `callForHelp` spawns constables and ends the conversation. In a real game, the same event would go through the game's validation and authority layer.
+In the sample game, `callForHelp` spawns constables on nearby roads, sends them toward the incident, and ends the conversation. In a real game, the same event would go through the game's validation and authority layer.
 
 For responsiveness, the playable demo now skips the mood/action assessment pass for ordinary low-risk lines and keeps it on for threat-like or guard-relevant dialogue. That keeps a normal greeting to one model call while still testing Gemma's judgment when the player says something risky.
 
@@ -249,7 +259,7 @@ const event = await ai.areaEvent({
 - `mysteriousBeing`: Gemma creates a place-bound being with a name, description, greeting, mood, and speech style. The demo turns it into an NPC conversation.
 - `strangeSounds`: Gemma creates short sensory lines near the structure with no direct interaction.
 
-In the playable demo, the four authored landmarks preload their area events after model warmup. The app constrains each landmark to a specific event lane so every structure gets a distinct trigger instead of four independent random rolls. If a player reaches a landmark before preload finishes, the trigger visibly waits for Gemma instead of using canned content.
+In the playable demo, the four authored landmarks preload their area events after model warmup. The app constrains each landmark to a specific event lane so every structure gets a distinct trigger instead of four independent random rolls. If a player reaches a landmark before preload finishes, the trigger visibly waits for Gemma instead of using canned content. Failed event generation is shown once with a backoff instead of silently retrying forever.
 
 ## Runtime Controls
 
@@ -354,11 +364,12 @@ The IPC bridge validates payloads with the shared Zod schemas from `@game-llm/co
 `apps/the-world` is a stress test for the SDK ideas:
 
 - Fixed large 2D map with Rivergate, Mosswake, Cindervale, woods, roads, houses, and marked landmarks.
-- Startup stack chooser for Ollama or experimental LiteRT-LM, with `THE_WORLD_AI_STACK` for deterministic runs.
+- Startup stack chooser for Ollama, oMLX, or experimental LiteRT-LM, with `THE_WORLD_AI_STACK` for deterministic runs.
 - Loading screen that checks runtime health, warms the selected Gemma model, and shows failures plainly.
 - Random spawn near one of the towns.
 - Left-side click-to-talk panel with speaker portraits, chat history, immediate local goodbye, and a visible thinking animation while Gemma is generating.
 - NPC mood/disposition state and Gemma-controlled refusal/end-conversation behavior for lines that need assessment.
+- Basic renderer-owned combat for testing consequences around generated threats: health, bow aiming, ten arrows, sword slashes, road-spawned constables, and hostile event actors. Gemma proposes events and attitudes, but the renderer owns damage and defeat.
 - Gemma-generated landmark area events for the Old Mill, Abandoned Castle, Sunken Chapel, and Black Bell Tower.
 - Typed trigger execution for generated bandit ambushes, mysterious beings, and strange structure sounds.
 - Private NPC groups that speak to each other and refuse interruption.
@@ -440,6 +451,10 @@ packages/ollama
 packages/litert-lm
   Experimental LiteRT-LM provider, imported-model health checks,
   persistent GPU bridge, structured output cleanup, and tests.
+
+packages/omlx
+  oMLX provider using AI SDK's OpenAI-compatible adapter, model discovery,
+  warmup, schema-guided generation, and tests.
 
 packages/electron
   Main/preload IPC bridge, shared schema validation, request cancellation,

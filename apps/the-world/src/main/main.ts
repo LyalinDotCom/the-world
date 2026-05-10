@@ -109,15 +109,19 @@ async function chooseRuntimeStack(): Promise<RuntimeStack> {
     message: 'Choose the local AI stack for this play session.',
     detail: [
       'Ollama Gemma 4 E4B GGUF Q4 is the stable schema-bound path.',
-      'LiteRT-LM Gemma 4 E4B is experimental GPU CLI support for comparison.'
+      'LiteRT-LM Gemma 4 E4B is experimental GPU CLI support for comparison.',
+      'oMLX Gemma 4 E4B MLX 8-bit uses the local OpenAI-compatible oMLX server through AI SDK.'
     ].join('\n'),
     buttons: [
       'Ollama Gemma4 E4B',
-      'LiteRT-LM Gemma4 E4B'
+      'LiteRT-LM Gemma4 E4B',
+      'oMLX Gemma4 E4B MLX 8-bit'
     ],
     defaultId: 0,
     cancelId: 0,
     noLink: true
   });
-  return result.response === 1 ? 'litert-lm-gemma4-e4b' : 'ollama-gemma4-e4b';
+  if (result.response === 1) return 'litert-lm-gemma4-e4b';
+  if (result.response === 2) return 'omlx-gemma4-e4b-mlx-8bit';
+  return 'ollama-gemma4-e4b';
 }

@@ -19,6 +19,7 @@ import {
   landmarkLoreLines,
   landmarks,
   nearestLandmarks,
+  pathStrength,
   randomTownSpawn,
   regionName,
   towns,
@@ -70,8 +71,31 @@ interface Constable {
   patrolSeed: number;
   spawnedAt: number;
   expiresAt: number;
+  health: number;
   reason: string;
 }
+
+interface Projectile {
+  id: string;
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  damage: number;
+  createdAt: number;
+  expiresAt: number;
+}
+
+interface SlashArc {
+  id: string;
+  x: number;
+  y: number;
+  heading: number;
+  createdAt: number;
+  expiresAt: number;
+}
+
+type WeaponMode = 'bow' | 'sword';
 
 type DiagnosticsTab = 'trace' | 'machine' | 'perf';
 type BootPhaseStatus = 'pending' | 'active' | 'ready' | 'degraded' | 'failed';
@@ -135,6 +159,8 @@ let conversation: LogLine[] = [];
 let bubbles: Bubble[] = [];
 let ambientMeetups: AmbientMeetup[] = [];
 let constables: Constable[] = [];
+let projectiles: Projectile[] = [];
+let slashes: SlashArc[] = [];
 let areaEventActors: AreaEventActor[] = [];
 const areaEventStates = new Map<string, AreaEventState>(landmarks.map((landmark) => [landmark.id, {
   triggered: false,
@@ -157,6 +183,13 @@ let fps = 0;
 const fpsCounter = new FpsCounter();
 const dialogueTimeoutMs = 60_000;
 const ambientStartupJobLimit = 6;
+const areaEventRetryDelayMs = 60_000;
+const playerMaxHealth = 10;
+let playerHealth = playerMaxHealth;
+let arrowCount = 10;
+let weaponMode: WeaponMode = 'bow';
+let nextAttackAt = 0;
+let mouseWorld: Vec2 = { x: player.x + 80, y: player.y };
 let perfLogStatus: PerfLogStatus = { active: false, samples: 0 };
 let perfLogLastSampleAt = 0;
 let perfLogWriteInFlight = false;
@@ -185,6 +218,7 @@ hud.innerHTML = `
     <strong id="coord-line"></strong>
   </div>
   <div id="interaction" class="interaction"></div>
+  <div id="combat" class="combat-panel"></div>
   <aside class="minimap-panel">
     <header>Map</header>
     <canvas id="minimap" aria-label="Mini map"></canvas>
@@ -309,6 +343,7 @@ const diagGraphCtx: CanvasRenderingContext2D = diagGraphContext;
 const regionEl = document.querySelector<HTMLSpanElement>('#region-line')!;
 const coordEl = document.querySelector<HTMLSpanElement>('#coord-line')!;
 const interactionEl = document.querySelector<HTMLDivElement>('#interaction')!;
+const combatEl = document.querySelector<HTMLDivElement>('#combat')!;
 const minimapCanvas = document.querySelector<HTMLCanvasElement>('#minimap')!;
 const minimapContext = minimapCanvas.getContext('2d');
 if (!minimapContext) {
@@ -344,15 +379,14 @@ const bootEnterButton = document.querySelector<HTMLButtonElement>('#boot-enter')
 const bootDiagnosticsButton = document.querySelector<HTMLButtonElement>('#boot-diagnostics')!;
 
 window.addEventListener('resize', resize);
+canvas.addEventListener('mousemove', (event) => {
+  mouseWorld = screenToWorld(event);
+});
 canvas.addEventListener('click', (event) => {
   if (bootVisible) return;
   if (activeNpc) return;
-  const rect = canvas.getBoundingClientRect();
-  const camera = cameraForPlayer();
-  const point = {
-    x: camera.x + event.clientX - rect.left,
-    y: camera.y + event.clientY - rect.top
-  };
+  const point = screenToWorld(event);
+  mouseWorld = point;
   const now = performance.now();
   const clicked = clickableNpcs
     .map((npc) => ({ npc, distance: distance(npcPosition(npc, now, clickableNpcs), point) }))
@@ -360,7 +394,9 @@ canvas.addEventListener('click', (event) => {
     .sort((a, b) => a.distance - b.distance)[0]?.npc;
   if (clicked) {
     void startConversation(clicked);
+    return;
   }
+  attack(now);
 });
 window.addEventListener('keydown', (event) => {
   if (event.repeat) return;
@@ -374,6 +410,27 @@ window.addEventListener('keydown', (event) => {
     event.preventDefault();
     closeConversation();
     return;
+  }
+  const key = event.key.toLowerCase();
+  if (!activeNpc && !dialogueInput.matches(':focus')) {
+    if (key === '1') {
+      weaponMode = 'bow';
+      interactionKey = '';
+      renderHud();
+      return;
+    }
+    if (key === '2' || key === 'q') {
+      weaponMode = weaponMode === 'bow' ? 'sword' : 'bow';
+      interactionKey = '';
+      renderHud();
+      return;
+    }
+    if (key === 'f' || key === ' ' || key === '/') {
+      event.preventDefault();
+      weaponMode = 'sword';
+      attack(performance.now());
+      return;
+    }
   }
   if (event.key.toLowerCase() === 'e' && nearestNpc && !activeNpc) {
     void startConversation(nearestNpc);
@@ -570,11 +627,14 @@ async function preloadAreaEvents(modelLabel: string): Promise<void> {
 async function generateAreaEvent(landmark: typeof landmarks[number], refresh: boolean): Promise<AreaEvent | undefined> {
   const state = areaEventStates.get(landmark.id);
   if (state?.inFlight) return state.event;
+  const startedAt = performance.now();
   areaEventStates.set(landmark.id, {
     triggered: state?.triggered ?? false,
     inFlight: true,
+    inFlightStartedAt: startedAt,
     event: state?.event,
-    failed: undefined
+    failed: undefined,
+    failureNotified: false
   });
   try {
     const event = await ai.areaEvent({
@@ -590,14 +650,19 @@ async function generateAreaEvent(landmark: typeof landmarks[number], refresh: bo
         triggered: state?.triggered ?? false,
         inFlight: false,
         event: state?.event,
-        failed: event.safetyFlags[0]?.message ?? 'Gemma area event fallback'
+        failed: event.safetyFlags[0]?.message ?? 'Gemma area event fallback',
+        failureNotified: false,
+        retryAfter: performance.now() + areaEventRetryDelayMs
       });
       return undefined;
     }
     areaEventStates.set(landmark.id, {
       triggered: state?.triggered ?? false,
       inFlight: false,
-      event
+      event,
+      failed: undefined,
+      failureNotified: false,
+      retryAfter: undefined
     });
     traceLine = `${event.trace?.recipeId ?? 'world.areaEvent'} / ${event.trace?.providerId ?? 'unknown'} / ${landmark.name}`;
     traceDetail = event.trace?.rawText.slice(0, 420) ?? '';
@@ -607,7 +672,9 @@ async function generateAreaEvent(landmark: typeof landmarks[number], refresh: bo
       triggered: state?.triggered ?? false,
       inFlight: false,
       event: state?.event,
-      failed: errorMessage(error)
+      failed: errorMessage(error),
+      failureNotified: false,
+      retryAfter: performance.now() + areaEventRetryDelayMs
     });
     traceLine = `area event failed / ${landmark.name} / ${errorMessage(error)}`;
     traceDetail = '';
@@ -746,6 +813,7 @@ function update(dt: number, now: number): void {
 
   bubbles = bubbles.filter((bubble) => bubble.expiresAt > now);
   footsteps = footsteps.filter((footstep) => footstep.expiresAt > now);
+  updateCombat(dt, now);
   updateAreaEventActors(dt, now);
   updateConstables(dt, now);
   if (activeNpc && activeNpcPosition && distance(activeNpcPosition, player) > 260) {
@@ -785,8 +853,18 @@ function draw(now: number): void {
     bubbles,
     npcPosition: (npc) => npcPosition(npc, now, npcs)
   });
+  drawCombat(now, camera);
   drawMapBoundary({ ctx, world, camera, width: cssWidth, height: cssHeight, now, wallPulseUntil });
   drawMinimap(now, npcs);
+}
+
+function screenToWorld(event: MouseEvent): Vec2 {
+  const rect = canvas.getBoundingClientRect();
+  const camera = cameraForPlayer();
+  return {
+    x: camera.x + event.clientX - rect.left,
+    y: camera.y + event.clientY - rect.top
+  };
 }
 
 function cameraForPlayer(): Vec2 {
@@ -917,13 +995,34 @@ function maybeTriggerAreaEvent(now: number): void {
       executeAreaEvent(landmark, state.event, now);
       return;
     }
+    if (state.failed && (!state.retryAfter || now < state.retryAfter)) {
+      if (!state.failureNotified) {
+        areaEventStates.set(landmark.id, {
+          ...state,
+          failureNotified: true
+        });
+        bubbles.push({
+          id: `area:${landmark.id}:failed:${now}`,
+          npcId: `area:${landmark.id}`,
+          x: landmark.x,
+          y: landmark.y,
+          text: `${landmark.name} resists the event. Gemma failed: ${state.failed}`,
+          startsAt: now,
+          expiresAt: now + 5_800,
+          kind: 'ambient'
+        });
+        traceLine = `area event unavailable / ${landmark.name}`;
+        traceDetail = state.failed;
+      }
+      return;
+    }
     if (!state.inFlight) {
       bubbles.push({
         id: `area:${landmark.id}:loading:${now}`,
         npcId: `area:${landmark.id}`,
         x: landmark.x,
         y: landmark.y,
-        text: `${landmark.name} stirs as Gemma shapes an event...`,
+        text: `${landmark.name} stirs as Gemma prepares an event...`,
         startsAt: now,
         expiresAt: now + 5_200,
         kind: 'ambient'
@@ -1027,6 +1126,187 @@ function triggeredAreaEventTitles(): string[] {
     .map((state) => `${state.event!.locationName}: ${state.event!.title}`);
 }
 
+function updateCombat(dt: number, now: number): void {
+  playerHealth = Math.min(playerMaxHealth, playerHealth + dt * 0.32);
+  projectiles = projectiles.filter((projectile) => projectile.expiresAt > now);
+  slashes = slashes.filter((slash) => slash.expiresAt > now);
+
+  for (const projectile of [...projectiles]) {
+    const next = {
+      x: projectile.x + projectile.vx * dt,
+      y: projectile.y + projectile.vy * dt
+    };
+    if (!isInsideMap(next, 8) || staticCollisionAtInWorld(next, 4, world)) {
+      projectiles = projectiles.filter((candidate) => candidate.id !== projectile.id);
+      continue;
+    }
+    projectile.x = next.x;
+    projectile.y = next.y;
+    if (damageFirstHit(projectile, now)) {
+      projectiles = projectiles.filter((candidate) => candidate.id !== projectile.id);
+    }
+  }
+
+  let takingDamage = false;
+  for (const constable of constables) {
+    if (distance(constable, player) < 44) {
+      takingDamage = true;
+      playerHealth -= dt * 1.6;
+    }
+  }
+  for (const actor of areaEventActors) {
+    if (actor.persona.mood === 'hostile' && distance(actor, player) < 48) {
+      takingDamage = true;
+      playerHealth -= dt * 1.9;
+    }
+  }
+  if (takingDamage && now % 650 < 18) {
+    traceLine = 'combat / taking damage';
+  }
+  if (playerHealth <= 0) {
+    playerHealth = playerMaxHealth * 0.45;
+    constables = [];
+    areaEventActors = areaEventActors.filter((actor) => actor.persona.mood !== 'hostile');
+    bubbles.push({
+      id: `player:winded:${now}`,
+      npcId: 'player',
+      x: player.x,
+      y: player.y,
+      text: 'You are driven back and catch your breath.',
+      startsAt: now,
+      expiresAt: now + 4_200,
+      kind: 'reaction'
+    });
+  }
+}
+
+function attack(now: number): void {
+  if (now < nextAttackAt || bootVisible || activeNpc) return;
+  const aim = aimVector();
+  player.heading = Math.atan2(aim.y, aim.x);
+  if (weaponMode === 'bow') {
+    if (arrowCount <= 0) {
+      bubbles.push({
+        id: `player:no-arrows:${now}`,
+        npcId: 'player',
+        x: player.x,
+        y: player.y,
+        text: 'Quiver empty.',
+        startsAt: now,
+        expiresAt: now + 1_600,
+        kind: 'reaction'
+      });
+      nextAttackAt = now + 280;
+      return;
+    }
+    arrowCount -= 1;
+    nextAttackAt = now + 420;
+    projectiles.push({
+      id: `arrow:${now}`,
+      x: player.x + aim.x * 20,
+      y: player.y + aim.y * 20,
+      vx: aim.x * 860,
+      vy: aim.y * 860,
+      damage: 3,
+      createdAt: now,
+      expiresAt: now + 1_150
+    });
+    return;
+  }
+
+  nextAttackAt = now + 560;
+  slashes.push({
+    id: `slash:${now}`,
+    x: player.x,
+    y: player.y,
+    heading: player.heading,
+    createdAt: now,
+    expiresAt: now + 190
+  });
+  damageMelee(now);
+}
+
+function aimVector(): Vec2 {
+  const dx = mouseWorld.x - player.x;
+  const dy = mouseWorld.y - player.y;
+  const length = Math.max(1, Math.hypot(dx, dy));
+  return { x: dx / length, y: dy / length };
+}
+
+function damageFirstHit(projectile: Projectile, now: number): boolean {
+  const constable = constables.find((candidate) => distance(candidate, projectile) < 24);
+  if (constable) {
+    damageConstable(constable.id, projectile.damage, now);
+    return true;
+  }
+  const actor = areaEventActors.find((candidate) => candidate.persona.mood === 'hostile' && distance(candidate, projectile) < 24);
+  if (actor) {
+    damageAreaActor(actor.id, projectile.damage, now);
+    return true;
+  }
+  return false;
+}
+
+function damageMelee(now: number): void {
+  const aim = aimVector();
+  for (const constable of [...constables]) {
+    if (isMeleeHit(constable, aim)) {
+      damageConstable(constable.id, 1, now);
+    }
+  }
+  for (const actor of [...areaEventActors]) {
+    if (actor.persona.mood === 'hostile' && isMeleeHit(actor, aim)) {
+      damageAreaActor(actor.id, 1, now);
+    }
+  }
+}
+
+function isMeleeHit(target: Vec2, aim: Vec2): boolean {
+  const dx = target.x - player.x;
+  const dy = target.y - player.y;
+  const range = Math.hypot(dx, dy);
+  if (range > 74 || range < 1) return false;
+  return (dx / range) * aim.x + (dy / range) * aim.y > 0.42;
+}
+
+function damageConstable(id: string, amount: number, now: number): void {
+  const constable = constables.find((candidate) => candidate.id === id);
+  if (!constable) return;
+  constable.health -= amount;
+  if (constable.health <= 0) {
+    constables = constables.filter((candidate) => candidate.id !== id);
+    bubbles.push({
+      id: `${id}:down:${now}`,
+      npcId: id,
+      x: constable.x,
+      y: constable.y,
+      text: `${constable.name} falls back.`,
+      startsAt: now,
+      expiresAt: now + 2_700,
+      kind: 'reaction'
+    });
+  }
+}
+
+function damageAreaActor(id: string, amount: number, now: number): void {
+  const actor = areaEventActors.find((candidate) => candidate.id === id);
+  if (!actor) return;
+  actor.health = (actor.health ?? 3) - amount;
+  if (actor.health <= 0) {
+    areaEventActors = areaEventActors.filter((candidate) => candidate.id !== id);
+    bubbles.push({
+      id: `${id}:down:${now}`,
+      npcId: id,
+      x: actor.x,
+      y: actor.y,
+      text: `${actor.persona.name} drops.`,
+      startsAt: now,
+      expiresAt: now + 2_700,
+      kind: 'reaction'
+    });
+  }
+}
+
 function updateConstables(dt: number, now: number): void {
   constables = constables.filter((constable) => constable.expiresAt > now);
   for (const constable of constables) {
@@ -1050,8 +1330,42 @@ function updateConstables(dt: number, now: number): void {
     if (!staticCollisionAtInWorld(next, 14, world)) {
       constable.x = next.x;
       constable.y = next.y;
+    } else {
+      constable.target = constablePatrolTarget(constable.target, constable.patrolSeed + now * 0.001);
     }
   }
+}
+
+function drawCombat(now: number, camera: Vec2): void {
+  const aim = aimVector();
+  ctx.save();
+  ctx.strokeStyle = weaponMode === 'bow' ? 'rgba(244, 211, 109, 0.44)' : 'rgba(218, 234, 241, 0.36)';
+  ctx.lineWidth = 1.5;
+  ctx.setLineDash([6, 7]);
+  ctx.beginPath();
+  ctx.moveTo(player.x - camera.x, player.y - camera.y);
+  ctx.lineTo(player.x + aim.x * 90 - camera.x, player.y + aim.y * 90 - camera.y);
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  for (const projectile of projectiles) {
+    ctx.strokeStyle = '#f1d590';
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(projectile.x - camera.x, projectile.y - camera.y);
+    ctx.lineTo(projectile.x - projectile.vx * 0.026 - camera.x, projectile.y - projectile.vy * 0.026 - camera.y);
+    ctx.stroke();
+  }
+
+  for (const slash of slashes) {
+    const age = (now - slash.createdAt) / Math.max(1, slash.expiresAt - slash.createdAt);
+    ctx.strokeStyle = `rgba(232, 238, 220, ${Math.max(0, 1 - age) * 0.72})`;
+    ctx.lineWidth = 5;
+    ctx.beginPath();
+    ctx.arc(player.x - camera.x, player.y - camera.y, 58, slash.heading - 0.85, slash.heading + 0.85);
+    ctx.stroke();
+  }
+  ctx.restore();
 }
 
 function drawMinimap(now: number, npcs: GeneratedNpc[]): void {
@@ -1218,6 +1532,10 @@ function renderHud(): void {
   updateAmbientFlowLine();
   regionEl.textContent = regionName(player.x, player.y);
   coordEl.textContent = `${Math.round(player.x)}, ${Math.round(player.y)}${performance.now() < wallPulseUntil ? ' / map edge' : ''}`;
+  combatEl.innerHTML = `
+    <div><span>Health</span><strong>${Math.max(0, Math.ceil(playerHealth))}/${playerMaxHealth}</strong></div>
+    <div><span>Weapon</span><strong>${weaponMode === 'bow' ? `Bow ${arrowCount}` : 'Sword'}</strong></div>
+  `;
 
   const key = activeNpc ? 'active' : clickableNpcs.map((npc) => {
     const session = dialogueController.sessionFor(npc);
@@ -1258,7 +1576,8 @@ function dismissBootScreen(): void {
   pendingAmbientCacheModelLabel = undefined;
   if (modelLabel) {
     window.setTimeout(() => {
-      void preloadAreaEvents(modelLabel).finally(() => void pregenerateAmbientCache(modelLabel));
+      void preloadAreaEvents(modelLabel);
+      void pregenerateAmbientCache(modelLabel);
     }, 2_000);
   }
   renderHud();
@@ -1538,15 +1857,8 @@ function spawnConstables(npc: GeneratedNpc, reason: string): void {
   const origin = activeNpcPosition ?? npcPosition(npc, now);
   const names = ['Constable Rusk', 'Constable Vale'];
   for (let index = 0; index < 2; index += 1) {
-    const angle = player.heading + Math.PI + (index === 0 ? -0.55 : 0.55);
-    const spawnPoint = clampToMap({
-      x: player.x + Math.cos(angle) * 520,
-      y: player.y + Math.sin(angle) * 360
-    }, 70);
-    const target = clampToMap({
-      x: origin.x + (index === 0 ? -62 : 62),
-      y: origin.y + (index === 0 ? 34 : -34)
-    }, 70);
+    const spawnPoint = constableRoadSpawn(origin, index);
+    const target = constablePatrolTarget(origin, index * 1.9 + now * 0.001);
     constables.push({
       id: `constable.${Math.round(now)}.${index}`,
       name: names[index]!,
@@ -1556,6 +1868,7 @@ function spawnConstables(npc: GeneratedNpc, reason: string): void {
       patrolSeed: now * 0.001 + index * 2.4,
       spawnedAt: now,
       expiresAt: now + 95_000,
+      health: 3,
       reason
     });
   }
@@ -1570,6 +1883,48 @@ function spawnConstables(npc: GeneratedNpc, reason: string): void {
     expiresAt: now + 5_200,
     kind: 'dialogue'
   });
+}
+
+function constableRoadSpawn(origin: Vec2, index: number): Vec2 {
+  const candidates: Vec2[] = [];
+  for (const radius of [360, 460, 560, 680, 820, 980]) {
+    for (let step = 0; step < 20; step += 1) {
+      const angle = (Math.PI * 2 * step) / 20 + index * 0.76 + radius * 0.006;
+      candidates.push(clampToMap({
+        x: origin.x + Math.cos(angle) * radius,
+        y: origin.y + Math.sin(angle) * radius * 0.78
+      }, 70));
+    }
+  }
+  return candidates
+    .filter((candidate) => isSafeRoadPoint(candidate))
+    .sort((a, b) => {
+      const da = distance(a, origin) + distance(a, player) * 0.18;
+      const db = distance(b, origin) + distance(b, player) * 0.18;
+      return da - db;
+    })[0] ?? findSafeSpawnInWorld(origin, world, 18);
+}
+
+function constablePatrolTarget(origin: Vec2, seed: number): Vec2 {
+  const candidates: Vec2[] = [];
+  for (const radius of [54, 82, 116, 158, 220]) {
+    for (let step = 0; step < 14; step += 1) {
+      const angle = (Math.PI * 2 * step) / 14 + seed;
+      candidates.push(clampToMap({
+        x: origin.x + Math.cos(angle) * radius,
+        y: origin.y + Math.sin(angle) * radius * 0.72
+      }, 50));
+    }
+  }
+  return candidates
+    .filter((candidate) => isSafeRoadPoint(candidate))
+    .sort((a, b) => distance(a, origin) - distance(b, origin))[0] ?? findSafeSpawnInWorld(origin, world, 18);
+}
+
+function isSafeRoadPoint(point: Vec2): boolean {
+  return isInsideMap(point, 48) &&
+    pathStrength(point.x, point.y) > 0.26 &&
+    !staticCollisionAtInWorld(point, 18, world);
 }
 
 function closeConversation(): void {

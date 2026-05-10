@@ -5,8 +5,9 @@ import { createGameAI } from '@game-llm/core';
 import { registerGameAIIpc } from '@game-llm/electron';
 import { litertLmProvider } from '@game-llm/litert-lm';
 import { ollamaProvider } from '@game-llm/ollama';
+import { omlxProvider } from '@game-llm/omlx';
 
-export type RuntimeStack = 'ollama-gemma4-e4b' | 'litert-lm-gemma4-e4b';
+export type RuntimeStack = 'ollama-gemma4-e4b' | 'litert-lm-gemma4-e4b' | 'omlx-gemma4-e4b-mlx-8bit';
 
 export interface CreateRuntimeOptions {
   stack?: RuntimeStack;
@@ -14,7 +15,11 @@ export interface CreateRuntimeOptions {
 
 export function createRuntime(ipcMain: IpcMain, reportError: (kind: string, error: unknown) => void, options: CreateRuntimeOptions = {}): () => void {
   const stack = options.stack ?? parseRuntimeStack(process.env.THE_WORLD_AI_STACK) ?? 'ollama-gemma4-e4b';
-  const provider = stack === 'litert-lm-gemma4-e4b' ? createLiteRtProvider() : createOllamaProvider();
+  const provider = stack === 'litert-lm-gemma4-e4b'
+    ? createLiteRtProvider()
+    : stack === 'omlx-gemma4-e4b-mlx-8bit'
+      ? createOmlxProvider()
+      : createOllamaProvider();
   const ai = createGameAI({
     provider,
     world: {
@@ -34,7 +39,7 @@ export function createRuntime(ipcMain: IpcMain, reportError: (kind: string, erro
       ]
     },
     runtime: {
-      mode: provider.id === 'ollama' || provider.id === 'litert-lm' ? 'local-first' : 'mock',
+      mode: provider.id === 'ollama' || provider.id === 'litert-lm' || provider.id === 'omlx' ? 'local-first' : 'mock',
       quality: 'balanced',
       cache: 'session',
       maxLatencyMs: 24_000,
@@ -101,6 +106,18 @@ function createLiteRtProvider() {
   });
 }
 
+function createOmlxProvider() {
+  return omlxProvider({
+    baseUrl: process.env.THE_WORLD_OMLX_BASE_URL ?? 'http://127.0.0.1:8000/v1',
+    apiKey: process.env.THE_WORLD_OMLX_API_KEY ?? '1234',
+    model: process.env.THE_WORLD_OMLX_MODEL ?? 'gemma-4-E4B-it-MLX-8bit',
+    temperature: Number(process.env.THE_WORLD_TEMPERATURE ?? 0.55),
+    topP: Number(process.env.THE_WORLD_TOP_P ?? 0.9),
+    timeoutMs: Number(process.env.THE_WORLD_TIMEOUT_MS ?? 30_000),
+    structuredOutput: parseOmlxStructuredOutput(process.env.THE_WORLD_OMLX_STRUCTURED_OUTPUT)
+  });
+}
+
 function findLiteRtLmCommand(): string {
   const candidates = [
     path.resolve(process.cwd(), '.venv/litert-lm/bin/litert-lm'),
@@ -124,6 +141,12 @@ function parseThink(value: string | undefined): boolean | 'low' | 'medium' | 'hi
 export function parseRuntimeStack(value: string | undefined): RuntimeStack | undefined {
   if (value === 'ollama' || value === 'ollama-gemma4-e4b') return 'ollama-gemma4-e4b';
   if (value === 'litert' || value === 'litert-lm' || value === 'litert-lm-gemma4-e4b') return 'litert-lm-gemma4-e4b';
+  if (value === 'omlx' || value === 'omlx-gemma4-e4b' || value === 'omlx-gemma4-e4b-mlx-8bit') return 'omlx-gemma4-e4b-mlx-8bit';
+  return undefined;
+}
+
+function parseOmlxStructuredOutput(value: string | undefined): 'json_schema' | 'json_object' | 'none' | undefined {
+  if (value === 'json_schema' || value === 'json_object' || value === 'none') return value;
   return undefined;
 }
 

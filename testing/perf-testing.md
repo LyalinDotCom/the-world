@@ -6,10 +6,12 @@ Last updated: 2026-05-10.
 
 - MacBook Air, Apple M5, 10 CPU cores, 10 GPU cores, 32 GB unified memory.
 - Ollama `0.23.2`.
+- oMLX `0.3.8`, OpenAI-compatible API at `http://127.0.0.1:8000/v1`.
 - Installed relevant models:
   - `gemma4:e4b`: GGUF, Q4_K_M, about 9.6 GB.
   - `gemma4:e4b-mlx-bf16`: safetensors/MLX-style, about 16 GB.
   - `gemma4:e2b`, `gemma4:26b`, `gemma4:31b`, `gemma4:31b-mlx-bf16`.
+  - oMLX `gemma-4-E4B-it-MLX-8bit`, about 8.7 GB active memory in the oMLX dashboard.
 
 ## Sources Checked
 
@@ -58,8 +60,14 @@ Last updated: 2026-05-10.
   - Strips JSON Markdown fences before core schema parsing.
 - Added startup runtime selection in the Electron main process:
   - `Ollama Gemma4 E4B`
+  - `oMLX Gemma4 E4B MLX 8-bit`
   - `LiteRT-LM Gemma4 E4B`
-  - Can be bypassed with `THE_WORLD_AI_STACK=ollama` or `THE_WORLD_AI_STACK=litert-lm`.
+  - Can be bypassed with `THE_WORLD_AI_STACK=ollama`, `THE_WORLD_AI_STACK=omlx`, or `THE_WORLD_AI_STACK=litert-lm`.
+- Added `packages/omlx` with `omlxProvider`.
+  - Uses Vercel AI SDK's OpenAI-compatible provider for chat generation instead of owning chat-completions request formatting.
+  - Keeps direct `/models` fetches only for health/model discovery.
+  - Defaults to `http://127.0.0.1:8000/v1`, API key `1234`, and `gemma-4-E4B-it-MLX-8bit`.
+  - Uses AI SDK structured output for `json_schema` mode and still keeps the existing core JSON parsing/validation path as the authority.
 - Added install/import scripts:
   - `npm run install:litert-lm`
   - `npm run import:litert-gemma4`
@@ -124,6 +132,21 @@ LiteRT-LM ad hoc generation, GPU, 4096 max tokens:
 - Conclusion: LiteRT-LM is promising for a smaller prompt path, but the current full schema-bound SDK prompt is still too heavy to make LiteRT-LM obviously better than Ollama in-game.
 
 Recommendation: keep Ollama as the playable default for now because it has more benchmark coverage, but use startup selection to test the new LiteRT-LM provider in-game. LiteRT-LM GPU has the first-token and decode profile we want.
+
+### oMLX
+
+- Added an SDK provider path for the running oMLX server instead of treating it as an Ollama model variant.
+- Live smoke test against `gemma-4-E4B-it-MLX-8bit` on 2026-05-10:
+  - health check listed the model from `/models`;
+  - tiny schema-guided prompt returned `{"text":"ready"}`;
+  - latency was about 550ms for 168 prompt tokens and 5 output tokens with AI SDK structured output enabled.
+- oMLX dashboard at the time of testing reported:
+  - prompt processing around 11.8 tok/s;
+  - generation around 24.3 tok/s;
+  - active model memory around 8.7 GB.
+- This is not yet a full in-game benchmark. The tiny prompt result is good enough to prove the provider path, startup selection, API key/base URL defaults, and AI SDK integration.
+
+Recommendation: use the new startup option to compare oMLX in-game against Ollama on real dialogue, ambient, and event prompts. Keep Ollama as the default until the full scenario harness shows oMLX is consistently faster for realistic prompts.
 
 ### Realistic Context Size
 

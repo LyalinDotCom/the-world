@@ -6,13 +6,17 @@ export interface AreaEventState {
   event?: AreaEvent;
   triggered: boolean;
   inFlight: boolean;
+  inFlightStartedAt?: number;
   failed?: string;
+  failureNotified?: boolean;
+  retryAfter?: number;
 }
 
 export interface AreaEventActor extends GeneratedNpc {
   eventId: string;
   expiresAt: number;
   target?: Vec2;
+  health?: number;
 }
 
 export function areaEventCacheKey(landmark: Landmark): string {
@@ -114,6 +118,7 @@ export function areaEventNpcsFromBandits(event: AreaEvent, origin: Vec2, player:
       id: `area.bandit.${event.locationId}.${index}`,
       eventId: event.locationId,
       expiresAt: now + 55_000,
+      health: 3,
       target: player,
       x: spawn.x,
       y: spawn.y,
