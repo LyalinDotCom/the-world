@@ -8,6 +8,8 @@ The core promise:
 
 This repo is not mainly a game. The game is the showcase. The main product idea is a TypeScript toolkit that lets developers turn local LLMs into controlled, schema-bound, lore-aware game systems: NPC dialogue, area events, ambient barks, overheard conversations, memory, policy checks, cache-first runtime behavior, diagnostics, and safe Electron IPC.
 
+The playable layer still needs to feel like something you can inhabit. Light combat exists for that reason: it makes generated threats, constable calls, bandit ambushes, escape, damage, and recovery testable as a player experience instead of as isolated model outputs. Gemma can propose danger and character intent, but the game owns combat rules, health, damage, defeat, inventory, and all authoritative state.
+
 ![The World playable demo](docs/the-world-demo.png)
 
 ## What Developers Get
@@ -261,6 +263,8 @@ const event = await ai.areaEvent({
 
 In the playable demo, the four authored landmarks preload their area events after model warmup. The app constrains each landmark to a specific event lane so every structure gets a distinct trigger instead of four independent random rolls. If a player reaches a landmark before preload finishes, the trigger visibly waits for Gemma instead of using canned content. Failed event generation is shown once with a backoff instead of silently retrying forever.
 
+Combat is intentionally renderer-owned demo scaffolding around these events. It is there so developers can play through Gemma-shaped scenarios and judge whether the generated setup actually works under pressure: bandits rushing the player, constables arriving after a risky conversation, and the player having enough agency to survive or disengage. The model does not award kills, remove health, decide loot, or complete quests.
+
 ## Runtime Controls
 
 Local models can be expensive during play, so the SDK is built around control points.
@@ -369,7 +373,7 @@ The IPC bridge validates payloads with the shared Zod schemas from `@game-llm/co
 - Random spawn near one of the towns.
 - Left-side click-to-talk panel with speaker portraits, chat history, immediate local goodbye, and a visible thinking animation while Gemma is generating.
 - NPC mood/disposition state and Gemma-controlled refusal/end-conversation behavior for lines that need assessment.
-- Basic renderer-owned combat for testing consequences around generated threats: health, bow aiming, ten arrows, sword slashes, road-spawned constables, and hostile event actors. Gemma proposes events and attitudes, but the renderer owns damage and defeat.
+- Basic renderer-owned combat for making generated scenarios playable: health that slowly recovers, bow aiming with ten arrows, sword slashes, road-spawned constables, and hostile event actors. It is not the SDK product; it is a thin experience layer that lets us evaluate Gemma-generated situations through play.
 - Gemma-generated landmark area events for the Old Mill, Abandoned Castle, Sunken Chapel, and Black Bell Tower.
 - Typed trigger execution for generated bandit ambushes, mysterious beings, and strange structure sounds.
 - Private NPC groups that speak to each other and refuse interruption.
