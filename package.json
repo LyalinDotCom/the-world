@@ -12,6 +12,9 @@
     "build": "npm run build --workspaces --if-present",
     "dev": "npm run dev --workspace the-world",
     "start": "npm start --workspace the-world",
+    "benchmark:gemma": "node scripts/benchmark-gemma-runtime.mjs",
+    "install:litert-lm": "python3 -m venv .venv/litert-lm && .venv/litert-lm/bin/python -m pip install --upgrade pip && .venv/litert-lm/bin/python -m pip install litert-lm==0.11.0",
+    "import:litert-gemma4": ".venv/litert-lm/bin/litert-lm import --from-huggingface-repo litert-community/gemma-4-E4B-it-litert-lm gemma-4-E4B-it.litertlm gemma4-e4b-litert",
     "test": "npm run test --workspaces --if-present",
     "typecheck": "npm run typecheck --workspaces --if-present"
   },

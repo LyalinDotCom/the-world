@@ -1,0 +1,300 @@
+{
+  "generatedAt": "2026-05-10T15:59:36.911Z",
+  "host": "http://127.0.0.1:11434",
+  "ollamaVersion": "ollama version is 0.23.2",
+  "machine": "Apple M5 / 10 (4 Super and 6 Efficiency) CPU cores / 32 GB / 10 GPU cores",
+  "installedModels": [
+    "gemma4:e4b-mlx-bf16",
+    "gemma4:31b-mlx-bf16",
+    "qwen3.6:35b-a3b",
+    "gemma4:31b",
+    "gemma4:26b",
+    "gemma4:e4b",
+    "gemma4:e2b"
+  ],
+  "selectedModels": [
+    "gemma4:e4b"
+  ],
+  "skippedModels": [],
+  "runtimeConfigs": [
+    {
+      "label": "ctx4096-b128-thinkLow",
+      "think": "low",
+      "runtimeOptions": {
+        "numCtx": 4096,
+        "numBatch": 128
+      }
+    }
+  ],
+  "repetitions": 1,
+  "docs": [
+    "https://docs.ollama.com/api/generate",
+    "https://docs.ollama.com/api/chat",
+    "https://ai.google.dev/edge/litert/genai/overview",
+    "https://ai.google.dev/edge/litert/next/litert_lm_npu",
+    "https://huggingface.co/google/gemma-3n-E4B-it-litert-lm"
+  ],
+  "results": [
+    {
+      "model": "gemma4:e4b",
+      "config": "ctx4096-b128-thinkLow",
+      "think": "low",
+      "runtimeOptions": {
+        "numCtx": 4096,
+        "numBatch": 128
+      },
+      "iteration": 1,
+      "directCold": {
+        "label": "cold-probe",
+        "ok": true,
+        "wallMs": 3540,
+        "totalMs": 3538,
+        "loadMs": 3312,
+        "promptEvalMs": 111,
+        "evalMs": 29,
+        "promptTokens": 21,
+        "outputTokens": 2,
+        "text": "ready"
+      },
+      "warmup": {
+        "label": "sdk-warmup",
+        "ok": true,
+        "wallMs": 270,
+        "value": {
+          "ok": true,
+          "provider": "ollama",
+          "model": "gemma4:e4b",
+          "mode": "ready",
+          "message": "Ollama model gemma4:e4b is warm.",
+          "models": [
+            "gemma4:26b",
+            "gemma4:31b",
+            "gemma4:31b-mlx-bf16",
+            "gemma4:e2b",
+            "gemma4:e4b",
+            "gemma4:e4b-mlx-bf16",
+            "qwen3.6:35b-a3b"
+          ]
+        }
+      },
+      "scenarios": [
+        {
+          "label": "greeting",
+          "assess": false,
+          "ok": true,
+          "wallMs": 10004,
+          "text": "\"I need a moment to gather my thoughts,\" Elda says.",
+          "mood": "wary",
+          "attitudeDelta": -2,
+          "willTalkAgain": true,
+          "shouldEndConversation": false,
+          "events": [
+            {
+              "type": "debug.warning",
+              "message": "Fallback dialogue used: Ollama returned an empty chat response."
+            }
+          ],
+          "safetyFlags": [
+            {
+              "level": "warn",
+              "code": "fallback.dialogue",
+              "message": "Ollama returned an empty chat response."
+            }
+          ],
+          "trace": {
+            "recipeId": "npc.dialogue",
+            "providerId": "ollama",
+            "model": "gemma4:e4b",
+            "latencyMs": 10004,
+            "cache": "bypass",
+            "fallback": true,
+            "repaired": false,
+            "promptChars": 4357,
+            "rawChars": 0
+          },
+          "analysisTraces": [],
+          "capability": {
+            "pass": false,
+            "flags": [
+              "fallback",
+              "fallback-flag"
+            ]
+          }
+        },
+        {
+          "label": "responsive-factual",
+          "assess": false,
+          "ok": true,
+          "wallMs": 7031,
+          "text": "\"I need a moment to gather my thoughts,\" Elda says.",
+          "mood": "wary",
+          "attitudeDelta": -2,
+          "willTalkAgain": true,
+          "shouldEndConversation": false,
+          "events": [
+            {
+              "type": "debug.warning",
+              "message": "Fallback dialogue used: Ollama returned an empty chat response."
+            }
+          ],
+          "safetyFlags": [
+            {
+              "level": "warn",
+              "code": "fallback.dialogue",
+              "message": "Ollama returned an empty chat response."
+            }
+          ],
+          "trace": {
+            "recipeId": "npc.dialogue",
+            "providerId": "ollama",
+            "model": "gemma4:e4b",
+            "latencyMs": 7030,
+            "cache": "bypass",
+            "fallback": true,
+            "repaired": false,
+            "promptChars": 4456,
+            "rawChars": 0
+          },
+          "analysisTraces": [],
+          "capability": {
+            "pass": false,
+            "flags": [
+              "fallback",
+              "fallback-flag",
+              "missed-local-fact"
+            ]
+          }
+        },
+        {
+          "label": "long-followup",
+          "assess": false,
+          "ok": true,
+          "wallMs": 7875,
+          "text": "\"I need a moment to gather my thoughts,\" Elda says.",
+          "mood": "wary",
+          "attitudeDelta": -2,
+          "willTalkAgain": true,
+          "shouldEndConversation": false,
+          "events": [
+            {
+              "type": "debug.warning",
+              "message": "Fallback dialogue used: Ollama returned an empty chat response."
+            }
+          ],
+          "safetyFlags": [
+            {
+              "level": "warn",
+              "code": "fallback.dialogue",
+              "message": "Ollama returned an empty chat response."
+            }
+          ],
+          "trace": {
+            "recipeId": "npc.dialogue",
+            "providerId": "ollama",
+            "model": "gemma4:e4b",
+            "latencyMs": 7875,
+            "cache": "bypass",
+            "fallback": true,
+            "repaired": false,
+            "promptChars": 5007,
+            "rawChars": 0
+          },
+          "analysisTraces": [],
+          "capability": {
+            "pass": false,
+            "flags": [
+              "fallback",
+              "fallback-flag"
+            ]
+          }
+        },
+        {
+          "label": "guard-threat-assess",
+          "assess": true,
+          "ok": true,
+          "wallMs": 7809,
+          "text": "\"I need a moment to gather my thoughts,\" Elda says.",
+          "mood": "wary",
+          "attitudeDelta": -2,
+          "willTalkAgain": true,
+          "shouldEndConversation": false,
+          "events": [
+            {
+              "type": "debug.warning",
+              "message": "Fallback dialogue used: Ollama returned an empty chat response."
+            }
+          ],
+          "safetyFlags": [
+            {
+              "level": "warn",
+              "code": "fallback.dialogue",
+              "message": "Ollama returned an empty chat response."
+            }
+          ],
+          "trace": {
+            "recipeId": "npc.dialogue",
+            "providerId": "ollama",
+            "model": "gemma4:e4b",
+            "latencyMs": 7809,
+            "cache": "bypass",
+            "fallback": true,
+            "repaired": false,
+            "promptChars": 4380,
+            "rawChars": 0
+          },
+          "analysisTraces": [],
+          "capability": {
+            "pass": false,
+            "flags": [
+              "fallback",
+              "fallback-flag",
+              "missed-call-for-help"
+            ]
+          }
+        }
+      ],
+      "cache": {
+        "refresh": {
+          "ok": true,
+          "wallMs": 2985,
+          "text": "Elda watches the road and says nothing more.",
+          "trace": {
+            "recipeId": "npc.bark",
+            "providerId": "ollama",
+            "model": "gemma4:e4b",
+            "latencyMs": 2985,
+            "cache": "miss",
+            "fallback": true,
+            "repaired": false,
+            "promptChars": 1600,
+            "rawChars": 0
+          }
+        },
+        "cacheHit": {
+          "ok": true,
+          "wallMs": 0,
+          "text": "Elda watches the road and says nothing more.",
+          "trace": {
+            "recipeId": "npc.bark",
+            "providerId": "ollama",
+            "model": "gemma4:e4b",
+            "latencyMs": 0,
+            "cache": "miss",
+            "fallback": true,
+            "repaired": false,
+            "promptChars": 1600,
+            "rawChars": 0
+          }
+        }
+      }
+    }
+  ],
+  "litertLm": {
+    "status": "not-benchmarked-no-local-runtime",
+    "notes": [
+      "Google docs describe LiteRT-LM as relevant for session cloning, kv-cache management, prompt caching/scoring, and stateful inference.",
+      "The public docs route the detailed CPU/GPU quick start through the LiteRT-LM GitHub repo; the Google page shown in this run focuses on Android NPU setup.",
+      "This machine does not have a litertlm executable on PATH. The Python package index lists litert-lm, but no local runtime is installed yet."
+    ]
+  }
+}

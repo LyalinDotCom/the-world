@@ -8,7 +8,18 @@ export interface OllamaProviderOptions {
   temperature?: number;
   topP?: number;
   timeoutMs?: number;
+  think?: boolean | 'low' | 'medium' | 'high';
+  runtimeOptions?: OllamaRuntimeOptions;
   fetchImpl?: typeof fetch;
+}
+
+export interface OllamaRuntimeOptions {
+  numCtx?: number;
+  numBatch?: number;
+  numGpu?: number;
+  numThread?: number;
+  seed?: number;
+  repeatPenalty?: number;
 }
 
 export interface OllamaModelInfo {
@@ -64,6 +75,8 @@ export class OllamaGameAIProvider implements GameAIProvider {
   private readonly temperature: number;
   private readonly topP: number;
   private readonly timeoutMs: number;
+  private readonly think: boolean | 'low' | 'medium' | 'high';
+  private readonly runtimeOptions: OllamaRuntimeOptions;
   private readonly fetchImpl: typeof fetch;
 
   constructor(options: OllamaProviderOptions = {}) {
@@ -73,6 +86,8 @@ export class OllamaGameAIProvider implements GameAIProvider {
     this.temperature = options.temperature ?? 0.75;
     this.topP = options.topP ?? 0.9;
     this.timeoutMs = options.timeoutMs ?? 20_000;
+    this.think = options.think ?? false;
+    this.runtimeOptions = options.runtimeOptions ?? {};
     this.fetchImpl = options.fetchImpl ?? fetch;
   }
 
@@ -121,9 +136,10 @@ export class OllamaGameAIProvider implements GameAIProvider {
             }
           ],
           stream: false,
-          think: false,
+          think: this.think,
           keep_alive: this.keepAlive,
           options: {
+            ...toOllamaRuntimeOptions(this.runtimeOptions),
             temperature: 0,
             num_predict: 8
           }
@@ -163,10 +179,11 @@ export class OllamaGameAIProvider implements GameAIProvider {
         model: this.model,
         messages: toOllamaMessages(request.messages),
         stream: false,
-        think: false,
+        think: this.think,
         format: request.schema,
         keep_alive: this.keepAlive,
         options: {
+          ...toOllamaRuntimeOptions(this.runtimeOptions),
           temperature: request.temperature ?? this.temperature,
           top_p: this.topP,
           num_predict: request.maxTokens
@@ -257,6 +274,17 @@ export function structuredJsonInstruction(schema: JsonSchema): string {
 
 function normalizeHost(host: string): string {
   return host.replace(/\/+$/, '');
+}
+
+function toOllamaRuntimeOptions(options: OllamaRuntimeOptions): Record<string, number> {
+  return Object.fromEntries(Object.entries({
+    num_ctx: options.numCtx,
+    num_batch: options.numBatch,
+    num_gpu: options.numGpu,
+    num_thread: options.numThread,
+    seed: options.seed,
+    repeat_penalty: options.repeatPenalty
+  }).filter((entry): entry is [string, number] => typeof entry[1] === 'number'));
 }
 
 function toOllamaMessages(messages: ChatMessage[]): Array<{ role: string; content: string }> {

@@ -1,0 +1,203 @@
+# Gemma Runtime Perf Testing
+
+Last updated: 2026-05-10.
+
+## Current Machine
+
+- MacBook Air, Apple M5, 10 CPU cores, 10 GPU cores, 32 GB unified memory.
+- Ollama `0.23.2`.
+- Installed relevant models:
+  - `gemma4:e4b`: GGUF, Q4_K_M, about 9.6 GB.
+  - `gemma4:e4b-mlx-bf16`: safetensors/MLX-style, about 16 GB.
+  - `gemma4:e2b`, `gemma4:26b`, `gemma4:31b`, `gemma4:31b-mlx-bf16`.
+
+## Sources Checked
+
+- Ollama chat/generate API supports `format` for structured output, `think`, `keep_alive`, and runtime `options`; responses include load, prompt eval, and generation timings.
+  - https://docs.ollama.com/api/chat
+  - https://docs.ollama.com/api/generate
+- Google LiteRT GenAI docs say LiteRT-LM is relevant for session cloning, KV-cache management, prompt caching/scoring, and stateful inference.
+  - https://ai.google.dev/edge/litert/genai/overview
+- Hugging Face exposes `google/gemma-3n-E4B-it-litert-lm`, but the model files require accepting the Gemma license before access. The card lists 32K text context and LiteRT-LM benchmark data.
+  - https://huggingface.co/google/gemma-3n-E4B-it-litert-lm
+- Public LiteRT artifact tested:
+  - https://huggingface.co/litert-community/gemma-4-E4B-it-litert-lm
+
+## Harness
+
+- Added `npm run benchmark:gemma`.
+- Script: `scripts/benchmark-gemma-runtime.mjs`.
+- Outputs:
+  - `docs/gemma-runtime-benchmark.latest.json`
+  - `docs/gemma-runtime-benchmark.latest.md`
+  - optional custom paths via `--outputJson=... --outputMd=...`
+- The harness uses the actual SDK path: `createGameAI` plus `ollamaProvider`.
+- It tests:
+  - cold load probe via Ollama API timings,
+  - SDK warmup,
+  - greeting,
+  - factual response with recent dialogue,
+  - long-followup with ten recent dialogue lines,
+  - guard threat with reply + mood assessment + action decision,
+  - bark refresh versus cache-only hit.
+
+## SDK Changes Made
+
+- `packages/ollama/src/index.ts` now accepts runtime options:
+  - `numCtx` -> `num_ctx`
+  - `numBatch` -> `num_batch`
+  - `numGpu` -> `num_gpu`
+  - `numThread` -> `num_thread`
+  - `seed`
+  - `repeatPenalty` -> `repeat_penalty`
+- `packages/ollama/src/index.ts` now accepts `think: boolean | "low" | "medium" | "high"`.
+- `packages/ollama/test/index.test.ts` verifies these settings are passed through.
+- Added `packages/litert-lm` with `litertLmProvider`.
+  - Uses the LiteRT-LM CLI directly instead of the alpha HTTP server because the bundled server currently initializes `litert_lm.Engine(..., backend=CPU)`.
+  - Defaults to GPU backend, `gemma4-e4b-litert`, 4096 KV/cache tokens, and the same temperature/top-p defaults as Ollama.
+  - Strips JSON Markdown fences before core schema parsing.
+- Added startup runtime selection in the Electron main process:
+  - `Ollama Gemma4 E4B`
+  - `LiteRT-LM Gemma4 E4B`
+  - Can be bypassed with `THE_WORLD_AI_STACK=ollama` or `THE_WORLD_AI_STACK=litert-lm`.
+- Added install/import scripts:
+  - `npm run install:litert-lm`
+  - `npm run import:litert-gemma4`
+
+## Key Findings So Far
+
+### Thinking
+
+- `think:false` is required for current structured game calls through Ollama.
+- `think:true` caused empty chat content in both tested E4B installs, which triggers SDK fallback:
+  - `gemma4:e4b` at 1024 context: all dialogue scenarios fell back.
+  - `gemma4:e4b-mlx-bf16` at 1024 context: all dialogue scenarios fell back.
+- Recommendation for playable demo right now: keep `think:false` for schema-bound dialogue, mood, action, bark, and overhear recipes.
+- Open follow-up: test `think:"low"` explicitly. It may behave differently from `true`, but it should not become the default unless it returns valid schema-bound content.
+- Follow-up completed: `think:"low"` at 4096 context also returned empty chat content for all dialogue scenarios. Keep `think:false`.
+
+### Model Format
+
+- `gemma4:e4b` GGUF Q4 is materially faster and more viable than `gemma4:e4b-mlx-bf16` in Ollama on this machine.
+- `gemma4:e4b-mlx-bf16`, 1024 context, thinking off:
+  - greeting: 12.9s
+  - responsive factual: 12.0s
+  - guard threat with assessment/action: 24.7s
+- `gemma4:e4b`, similar 1024/2048 context, thinking off:
+  - greeting: roughly 6.7s to 7.3s
+  - responsive factual: roughly 4.6s to 7.1s depending context/run
+  - guard threat with assessment/action: roughly 9.4s to 12.1s
+- Recommendation: prefer `gemma4:e4b` GGUF Q4 for the demo. Do not use the BF16/MLX install through Ollama for first-interaction latency.
+
+### LiteRT-LM
+
+- Installed `litert-lm==0.11.0` into `/tmp/the-world-litert-venv` for testing only.
+- Google gated artifact test:
+  - Command attempted: `litert-lm benchmark --from-huggingface-repo google/gemma-3n-E4B-it-litert-lm gemma-3n-E4B-it-int4.litertlm ...`
+  - Result: blocked by Hugging Face 401 gated repo. Needs accepted Gemma license plus auth token.
+- Public Gemma 4 E4B LiteRT artifact tested:
+  - Repo: `litert-community/gemma-4-E4B-it-litert-lm`
+  - File: `gemma-4-E4B-it.litertlm`
+  - Size on HF page: 3.66 GB.
+
+LiteRT-LM benchmark, 512 prefill tokens, 64 decode tokens:
+
+| Backend | Init | Time to first token | Prefill | Decode |
+| --- | ---: | ---: | ---: | ---: |
+| CPU | 32.8s | 6.13s | 84.3 tok/s | 17.7 tok/s |
+| GPU | 2.93s | 2.43s | 213.2 tok/s | 42.6 tok/s |
+
+LiteRT-LM ad hoc generation, GPU, 4096 max tokens:
+
+- NPC prose prompt completed in 2.19s.
+- Threat JSON-ish prompt completed in 2.28s and made the correct hostile/callForHelp decision.
+- Caveat: the JSON-ish output was wrapped in Markdown fences, so this is not yet a replacement for Ollama structured output. It is strong evidence that a LiteRT-LM provider could be much faster if we add prompt/JSON handling and/or use a compatible serving API.
+- SDK provider smoke test after implementation:
+  - `litertLmProvider` health found imported `gemma4-e4b-litert`.
+  - Tiny schema prompt returned `{"text":"ready"}` in 4.8s.
+  - Real `GameAI` NPC dialogue call returned valid schema-bound dialogue in 6.0s with no fallback.
+
+Recommendation: keep Ollama as the playable default for now because it has more benchmark coverage, but use startup selection to test the new LiteRT-LM provider in-game. LiteRT-LM GPU has the first-token and decode profile we want.
+
+### Realistic Context Size
+
+Treat 512 and 1024 as lower-bound stress tests, not recommendations. This is a dynamic town, not coding, but it still needs enough room for persona, scene, policy, recent dialogue, and schema.
+
+Realistic sweep for `gemma4:e4b`, thinking off:
+
+| Context | Greeting | Factual | Long Follow-up | Guard Threat + Analysis | Validity |
+| --- | ---: | ---: | ---: | ---: | --- |
+| 2048 | 7.3s | 7.1s fallback | 7.6s fallback | 10.3s | weak |
+| 4096 | 7.0s | 5.5s | 6.3s | 12.1s | best so far |
+| 8192 | 10.3s | 8.6s | 12.1s fallback | 15.8s | too slow/less reliable |
+
+Recommendation so far: use `num_ctx: 4096`, `num_batch: 128`, `think:false`.
+
+Why: 2048 produced malformed JSON in ordinary game-dialogue cases, while 8192 increased latency and still failed the long-followup once. 4096 handled the realistic long follow-up cleanly in this run.
+
+### Caching
+
+- SDK session cache works for ambient bark calls:
+  - refresh calls were about 1.9s to 2.7s on GGUF E4B.
+  - cache-only hit was 0ms in trace and effectively instant wall time.
+- Recommendation: keep ambient and movement-adjacent systems cache-first/pre-generated.
+- Do not cache first-time player dialogue broadly unless the cache key is intentionally scenario-specific; player dialogue needs real model judgment.
+
+### Demo Runtime Wiring
+
+- `apps/the-world/src/main/runtime.ts` now opts into the current best Ollama defaults:
+  - `keepAlive: "30m"`
+  - `temperature: 0.55`
+  - `topP: 0.9`
+  - `think: false`
+  - `numCtx: 4096`
+  - `numBatch: 128`
+- Runtime overrides:
+  - `THE_WORLD_KEEP_ALIVE`
+  - `THE_WORLD_TEMPERATURE`
+  - `THE_WORLD_TOP_P`
+  - `THE_WORLD_THINK=false|true|low|medium|high`
+  - `THE_WORLD_NUM_CTX`
+  - `THE_WORLD_NUM_BATCH`
+  - `THE_WORLD_NUM_GPU`
+  - `THE_WORLD_NUM_THREAD`
+
+## Current Preferred Config
+
+For `gemma4:e4b` through Ollama as the stable playable path:
+
+```ts
+ollamaProvider({
+  model: 'gemma4:e4b',
+  keepAlive: '30m',
+  temperature: 0.55,
+  topP: 0.9,
+  think: false,
+  runtimeOptions: {
+    numCtx: 4096,
+    numBatch: 128
+  }
+})
+```
+
+Game-side recommendation:
+
+- Start model warmup when Electron main starts.
+- Keep model alive across play with `keep_alive: 30m`.
+- Pregenerate/cache ambient barks and overheard exchanges.
+- On player approach or hover, begin a lightweight interaction warmup if the UI can do that without committing dialogue.
+- First visible NPC response should be a single creative dialogue call.
+- Mood/action analysis can happen after the text response, or only for risky input, if we want faster perceived response.
+
+## Open Work
+
+- Run a repeat pass for the current preferred config to check variance.
+- Test whether `think:true` or `think:"low"` can work in a separate non-schema recipe. Do not use it in schema-bound paths right now.
+- Test whether smaller schemas or shorter prompt instructions improve JSON reliability at 2048/4096 without reducing model judgment.
+- Add a benchmark mode that streams first token time; current SDK path uses non-streaming JSON, so it measures complete response latency.
+- For Google's gated Gemma 3n LiteRT artifact, retry after Hugging Face auth/license acceptance is available.
+- Run a broader in-game LiteRT-LM pass for barks, overhear, mood assessment, and action decisions. The provider works for basic schema-bound dialogue, but the full playable path still needs more data.
+- Decide whether the SDK should expose an official interaction policy like:
+  - `fastTextFirst`: reply now, run mood/action after.
+  - `fullDecision`: reply + assessment + action before renderer resolves.
+  - `riskOnlyDecision`: deterministic narrow risk screen decides whether to run assessment/action.

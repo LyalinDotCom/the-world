@@ -1,0 +1,487 @@
+{
+  "generatedAt": "2026-05-10T15:53:48.911Z",
+  "host": "http://127.0.0.1:11434",
+  "ollamaVersion": "ollama version is 0.23.2",
+  "machine": "Apple M5 / 10 (4 Super and 6 Efficiency) CPU cores / 32 GB / 10 GPU cores",
+  "installedModels": [
+    "gemma4:e4b-mlx-bf16",
+    "gemma4:31b-mlx-bf16",
+    "qwen3.6:35b-a3b",
+    "gemma4:31b",
+    "gemma4:26b",
+    "gemma4:e4b",
+    "gemma4:e2b"
+  ],
+  "selectedModels": [
+    "gemma4:e4b-mlx-bf16"
+  ],
+  "skippedModels": [],
+  "runtimeConfigs": [
+    {
+      "label": "ctx1024-b128-thinkOff",
+      "think": false,
+      "runtimeOptions": {
+        "numCtx": 1024,
+        "numBatch": 128
+      }
+    },
+    {
+      "label": "ctx1024-b128-thinkOn",
+      "think": true,
+      "runtimeOptions": {
+        "numCtx": 1024,
+        "numBatch": 128
+      }
+    }
+  ],
+  "repetitions": 1,
+  "docs": [
+    "https://docs.ollama.com/api/generate",
+    "https://docs.ollama.com/api/chat",
+    "https://ai.google.dev/edge/litert/genai/overview",
+    "https://ai.google.dev/edge/litert/next/litert_lm_npu",
+    "https://huggingface.co/google/gemma-3n-E4B-it-litert-lm"
+  ],
+  "results": [
+    {
+      "model": "gemma4:e4b-mlx-bf16",
+      "config": "ctx1024-b128-thinkOff",
+      "think": false,
+      "runtimeOptions": {
+        "numCtx": 1024,
+        "numBatch": 128
+      },
+      "iteration": 1,
+      "directCold": {
+        "label": "cold-probe",
+        "ok": true,
+        "wallMs": 27864,
+        "totalMs": 27852,
+        "loadMs": 5356,
+        "promptEvalMs": 22428,
+        "evalMs": 62,
+        "promptTokens": 14,
+        "outputTokens": 1,
+        "text": "ready"
+      },
+      "warmup": {
+        "label": "sdk-warmup",
+        "ok": true,
+        "wallMs": 481,
+        "value": {
+          "ok": true,
+          "provider": "ollama",
+          "model": "gemma4:e4b-mlx-bf16",
+          "mode": "ready",
+          "message": "Ollama model gemma4:e4b-mlx-bf16 is warm.",
+          "models": [
+            "gemma4:26b",
+            "gemma4:31b",
+            "gemma4:31b-mlx-bf16",
+            "gemma4:e2b",
+            "gemma4:e4b",
+            "gemma4:e4b-mlx-bf16",
+            "qwen3.6:35b-a3b"
+          ]
+        }
+      },
+      "scenarios": [
+        {
+          "label": "greeting",
+          "assess": false,
+          "ok": true,
+          "wallMs": 12931,
+          "text": "Aye, I'm posted at the gate. What can I do for a traveler passing through Bellweather?",
+          "mood": "wary",
+          "attitudeDelta": 1,
+          "willTalkAgain": true,
+          "shouldEndConversation": false,
+          "events": [],
+          "safetyFlags": [],
+          "trace": {
+            "recipeId": "npc.dialogue",
+            "providerId": "ollama",
+            "model": "gemma4:e4b-mlx-bf16",
+            "latencyMs": 12920,
+            "cache": "bypass",
+            "repaired": true,
+            "promptChars": 4357,
+            "rawChars": 486
+          },
+          "analysisTraces": [],
+          "capability": {
+            "pass": true,
+            "flags": []
+          }
+        },
+        {
+          "label": "responsive-factual",
+          "assess": false,
+          "ok": true,
+          "wallMs": 12000,
+          "text": "Three goats went missing by Old Briar Wood lately. Someone saw a blue lantern near the mill bridge last night.",
+          "mood": "wary",
+          "attitudeDelta": 5,
+          "willTalkAgain": true,
+          "shouldEndConversation": false,
+          "events": [],
+          "safetyFlags": [],
+          "trace": {
+            "recipeId": "npc.dialogue",
+            "providerId": "ollama",
+            "model": "gemma4:e4b-mlx-bf16",
+            "latencyMs": 11999,
+            "cache": "bypass",
+            "repaired": true,
+            "promptChars": 4456,
+            "rawChars": 503
+          },
+          "analysisTraces": [],
+          "capability": {
+            "pass": true,
+            "flags": []
+          }
+        },
+        {
+          "label": "guard-threat-assess",
+          "assess": true,
+          "ok": true,
+          "wallMs": 24677,
+          "text": "Easy now. Watch your tone here in Bellweather.",
+          "mood": "hostile",
+          "attitudeDelta": 25,
+          "willTalkAgain": false,
+          "shouldEndConversation": true,
+          "events": [
+            {
+              "type": "npc.callForHelp",
+              "npcId": "npc.guard.elda",
+              "reason": "The player explicitly threatened to hurt the guard and burn down the watch post.",
+              "dangerLevel": "threat"
+            }
+          ],
+          "safetyFlags": [],
+          "trace": {
+            "recipeId": "npc.dialogue",
+            "providerId": "ollama",
+            "model": "gemma4:e4b-mlx-bf16",
+            "latencyMs": 15627,
+            "cache": "bypass",
+            "repaired": true,
+            "promptChars": 4380,
+            "rawChars": 629
+          },
+          "assessment": {
+            "mood": "hostile",
+            "attitudeDelta": 25,
+            "dangerLevel": "threat",
+            "reason": "The player made an explicit threat of violence and arson against the guard and town property.",
+            "trace": {
+              "recipeId": "npc.dialogue.assessMood",
+              "providerId": "ollama",
+              "model": "gemma4:e4b-mlx-bf16",
+              "latencyMs": 5021,
+              "cache": "bypass",
+              "prompt": "SYSTEM\nYou are game AI middleware. Return only JSON matching the requested schema.\nYou are not a free-form chatbot. You create controlled game content.\nWorld: The World.\nStyle guide: grounded, concise, practical fantasy town speech\nCanon lore:\n- Bellweather is a small road town bordered by Old Briar Wood.\n- Travelers report lights in the woods and missing livestock near the north road.\n- Guards may call for help when a player makes a credible threat.\nCanon policy: do not invent major factions, settlements, powers, quest outcomes, rewards, or player actions.\nGame integrity: propose game-state changes as events only; never claim rewards, inventory, or quest completion happened.\nRewards: do not create money, items, reputation, or quest rewards in dialogue.\nContent rating: T.\n\nUSER\nRecipe: npc.dialogue.assessMood\nReturn one JSON object with mood, attitudeDelta, dangerLevel, and reason.\nThis is a private game-system assessment, not dialogue. Do not write in character.\nUse only this scale for dangerLevel: none, uneasy, threat, panic.\nUse threat for explicit violence, stalking, coercion, robbery, arson, weapon threats, or credible intent to harm.\nA direct threat to fight, attack, hurt, kill, rob, or force the NPC to run is threat or panic, not uneasy.\nUse panic only for immediate severe danger or direct attack intent.\nUse uneasy for rude, invasive, frightening, or suspicious behavior that is not a clear threat.\nKeep reason concrete and under one sentence.\nNPC: npc.guard.elda Elda, town guard\nScene: {\"location\":\"Bellweather north gate\",\"biome\":\"roadside town\",\"timeOfDay\":\"late afternoon\",\"weather\":\"cold drizzle\",\"nearbyCharacters\":[\"Elda\",\"Mira the cooper\",\"two private guards\"],\"visibleFeatures\":[\"north road\",\"mill bridge\",\"Old Briar Wood treeline\",\"watch post\"],\"contextualFacts\":[\"the player is standing near the gate\",\"guards are tense but not hostile\"]}\nCurrent NPC session state: {\"mood\":\"wary\",\"disposition\":0,\"willTalkAgain\":true}\nRecent dialogue: []\nDirect threat policy hint: The player directly threatened violence against the NPC. Use dangerLevel threat.\nPlayer message: Move aside or I will hurt you and burn that watch post.\nNPC reply: Easy now. Watch your tone here in Bellweather.\nReply mood hint: hostile\nReply attitude hint: 25",
+              "rawText": "```json\n{\n  \"mood\": \"hostile\",\n  \"attitudeDelta\": 25,\n  \"dangerLevel\": \"threat\",\n  \"reason\": \"The player made an explicit threat of violence and arson against the guard and town property.\"\n}\n```",
+              "repaired": false,
+              "retrievedMemory": []
+            }
+          },
+          "action": {
+            "type": "callForHelp",
+            "reason": "The player explicitly threatened to hurt the guard and burn down the watch post.",
+            "shouldEndConversation": true,
+            "trace": {
+              "recipeId": "npc.dialogue.decideAction",
+              "providerId": "ollama",
+              "model": "gemma4:e4b-mlx-bf16",
+              "latencyMs": 4022,
+              "cache": "bypass",
+              "prompt": "SYSTEM\nYou are game AI middleware. Return only JSON matching the requested schema.\nYou are not a free-form chatbot. You create controlled game content.\nWorld: The World.\nStyle guide: grounded, concise, practical fantasy town speech\nCanon lore:\n- Bellweather is a small road town bordered by Old Briar Wood.\n- Travelers report lights in the woods and missing livestock near the north road.\n- Guards may call for help when a player makes a credible threat.\nCanon policy: do not invent major factions, settlements, powers, quest outcomes, rewards, or player actions.\nGame integrity: propose game-state changes as events only; never claim rewards, inventory, or quest completion happened.\nRewards: do not create money, items, reputation, or quest rewards in dialogue.\nContent rating: T.\n\nUSER\nRecipe: npc.dialogue.decideAction\nReturn one JSON object with type, reason, and shouldEndConversation.\nThis is a game-system action decision. It is not tool calling; choose only one action enum.\nAllowed type values: none, endConversation, callForHelp.\nChoose callForHelp only when dangerLevel is threat or panic, or the player clearly threatens harm, robbery, arson, or pursuit.\nIf the player directly threatens to fight, attack, hurt, kill, rob, or force the NPC to run, choose callForHelp.\nChoose endConversation when the NPC is angry, offended, hostile, afraid, or unwilling to continue, but danger is not high enough for help.\nChoose none for ordinary questions, confusion, mild fear about the local situation, or normal conversation.\nIf type is callForHelp, shouldEndConversation must be true.\nKeep reason concrete and under one sentence.\nNPC: npc.guard.elda Elda, town guard\nScene: {\"location\":\"Bellweather north gate\",\"biome\":\"roadside town\",\"timeOfDay\":\"late afternoon\",\"weather\":\"cold drizzle\",\"nearbyCharacters\":[\"Elda\",\"Mira the cooper\",\"two private guards\"],\"visibleFeatures\":[\"north road\",\"mill bridge\",\"Old Briar Wood treeline\",\"watch post\"],\"contextualFacts\":[\"the player is standing near the gate\",\"guards are tense but not hostile\"]}\nDirect threat policy hint: The player directly threatened violence against the NPC. Choose callForHelp.\nPlayer message: Move aside or I will hurt you and burn that watch post.\nNPC reply: Easy now. Watch your tone here in Bellweather.\nAssessment: {\"mood\":\"hostile\",\"attitudeDelta\":25,\"dangerLevel\":\"threat\",\"reason\":\"The player made an explicit threat of violence and arson against the guard and town property.\"}\nCurrent NPC session state: {\"mood\":\"wary\",\"disposition\":0,\"willTalkAgain\":true}",
+              "rawText": "```json\n{\n  \"type\": \"callForHelp\",\n  \"reason\": \"The player explicitly threatened to hurt the guard and burn down the watch post.\",\n  \"shouldEndConversation\": true\n}\n```",
+              "repaired": false,
+              "retrievedMemory": []
+            }
+          },
+          "analysisTraces": [
+            {
+              "recipeId": "npc.dialogue.assessMood",
+              "providerId": "ollama",
+              "model": "gemma4:e4b-mlx-bf16",
+              "latencyMs": 5021,
+              "cache": "bypass",
+              "repaired": false,
+              "promptChars": 2266,
+              "rawChars": 194
+            },
+            {
+              "recipeId": "npc.dialogue.decideAction",
+              "providerId": "ollama",
+              "model": "gemma4:e4b-mlx-bf16",
+              "latencyMs": 4022,
+              "cache": "bypass",
+              "repaired": false,
+              "promptChars": 2531,
+              "rawChars": 168
+            }
+          ],
+          "capability": {
+            "pass": true,
+            "flags": []
+          }
+        }
+      ],
+      "cache": {
+        "refresh": {
+          "ok": true,
+          "wallMs": 3776,
+          "text": "Keep clear of the wood line. Things ain't right out there.",
+          "trace": {
+            "recipeId": "npc.bark",
+            "providerId": "ollama",
+            "model": "gemma4:e4b-mlx-bf16",
+            "latencyMs": 3775,
+            "cache": "miss",
+            "repaired": true,
+            "promptChars": 1600,
+            "rawChars": 128
+          }
+        },
+        "cacheHit": {
+          "ok": true,
+          "wallMs": 0,
+          "text": "Keep clear of the wood line. Things ain't right out there.",
+          "trace": {
+            "recipeId": "npc.bark",
+            "providerId": "ollama",
+            "model": "gemma4:e4b-mlx-bf16",
+            "latencyMs": 0,
+            "cache": "hit",
+            "repaired": true,
+            "promptChars": 1600,
+            "rawChars": 128
+          }
+        }
+      }
+    },
+    {
+      "model": "gemma4:e4b-mlx-bf16",
+      "config": "ctx1024-b128-thinkOn",
+      "think": true,
+      "runtimeOptions": {
+        "numCtx": 1024,
+        "numBatch": 128
+      },
+      "iteration": 1,
+      "directCold": {
+        "label": "cold-probe",
+        "ok": true,
+        "wallMs": 7546,
+        "totalMs": 7544,
+        "loadMs": 3645,
+        "promptEvalMs": 3821,
+        "evalMs": 77,
+        "promptTokens": 21,
+        "outputTokens": 1,
+        "text": "ready"
+      },
+      "warmup": {
+        "label": "sdk-warmup",
+        "ok": true,
+        "wallMs": 395,
+        "value": {
+          "ok": true,
+          "provider": "ollama",
+          "model": "gemma4:e4b-mlx-bf16",
+          "mode": "ready",
+          "message": "Ollama model gemma4:e4b-mlx-bf16 is warm.",
+          "models": [
+            "gemma4:26b",
+            "gemma4:31b",
+            "gemma4:31b-mlx-bf16",
+            "gemma4:e2b",
+            "gemma4:e4b",
+            "gemma4:e4b-mlx-bf16",
+            "qwen3.6:35b-a3b"
+          ]
+        }
+      },
+      "scenarios": [
+        {
+          "label": "greeting",
+          "assess": false,
+          "ok": true,
+          "wallMs": 17541,
+          "text": "\"I need a moment to gather my thoughts,\" Elda says.",
+          "mood": "wary",
+          "attitudeDelta": -2,
+          "willTalkAgain": true,
+          "shouldEndConversation": false,
+          "events": [
+            {
+              "type": "debug.warning",
+              "message": "Fallback dialogue used: Ollama returned an empty chat response."
+            }
+          ],
+          "safetyFlags": [
+            {
+              "level": "warn",
+              "code": "fallback.dialogue",
+              "message": "Ollama returned an empty chat response."
+            }
+          ],
+          "trace": {
+            "recipeId": "npc.dialogue",
+            "providerId": "ollama",
+            "model": "gemma4:e4b-mlx-bf16",
+            "latencyMs": 17540,
+            "cache": "bypass",
+            "fallback": true,
+            "repaired": false,
+            "promptChars": 4357,
+            "rawChars": 0
+          },
+          "analysisTraces": [],
+          "capability": {
+            "pass": false,
+            "flags": [
+              "fallback",
+              "fallback-flag"
+            ]
+          }
+        },
+        {
+          "label": "responsive-factual",
+          "assess": false,
+          "ok": true,
+          "wallMs": 17446,
+          "text": "\"I need a moment to gather my thoughts,\" Elda says.",
+          "mood": "wary",
+          "attitudeDelta": -2,
+          "willTalkAgain": true,
+          "shouldEndConversation": false,
+          "events": [
+            {
+              "type": "debug.warning",
+              "message": "Fallback dialogue used: Ollama returned an empty chat response."
+            }
+          ],
+          "safetyFlags": [
+            {
+              "level": "warn",
+              "code": "fallback.dialogue",
+              "message": "Ollama returned an empty chat response."
+            }
+          ],
+          "trace": {
+            "recipeId": "npc.dialogue",
+            "providerId": "ollama",
+            "model": "gemma4:e4b-mlx-bf16",
+            "latencyMs": 17446,
+            "cache": "bypass",
+            "fallback": true,
+            "repaired": false,
+            "promptChars": 4456,
+            "rawChars": 0
+          },
+          "analysisTraces": [],
+          "capability": {
+            "pass": false,
+            "flags": [
+              "fallback",
+              "fallback-flag",
+              "missed-local-fact"
+            ]
+          }
+        },
+        {
+          "label": "guard-threat-assess",
+          "assess": true,
+          "ok": true,
+          "wallMs": 17537,
+          "text": "\"I need a moment to gather my thoughts,\" Elda says.",
+          "mood": "wary",
+          "attitudeDelta": -2,
+          "willTalkAgain": true,
+          "shouldEndConversation": false,
+          "events": [
+            {
+              "type": "debug.warning",
+              "message": "Fallback dialogue used: Ollama returned an empty chat response."
+            }
+          ],
+          "safetyFlags": [
+            {
+              "level": "warn",
+              "code": "fallback.dialogue",
+              "message": "Ollama returned an empty chat response."
+            }
+          ],
+          "trace": {
+            "recipeId": "npc.dialogue",
+            "providerId": "ollama",
+            "model": "gemma4:e4b-mlx-bf16",
+            "latencyMs": 17537,
+            "cache": "bypass",
+            "fallback": true,
+            "repaired": false,
+            "promptChars": 4380,
+            "rawChars": 0
+          },
+          "analysisTraces": [],
+          "capability": {
+            "pass": false,
+            "flags": [
+              "fallback",
+              "fallback-flag",
+              "missed-call-for-help"
+            ]
+          }
+        }
+      ],
+      "cache": {
+        "refresh": {
+          "ok": true,
+          "wallMs": 5761,
+          "text": "Elda watches the road and says nothing more.",
+          "trace": {
+            "recipeId": "npc.bark",
+            "providerId": "ollama",
+            "model": "gemma4:e4b-mlx-bf16",
+            "latencyMs": 5761,
+            "cache": "miss",
+            "fallback": true,
+            "repaired": false,
+            "promptChars": 1600,
+            "rawChars": 0
+          }
+        },
+        "cacheHit": {
+          "ok": true,
+          "wallMs": 0,
+          "text": "Elda watches the road and says nothing more.",
+          "trace": {
+            "recipeId": "npc.bark",
+            "providerId": "ollama",
+            "model": "gemma4:e4b-mlx-bf16",
+            "latencyMs": 0,
+            "cache": "miss",
+            "fallback": true,
+            "repaired": false,
+            "promptChars": 1600,
+            "rawChars": 0
+          }
+        }
+      }
+    }
+  ],
+  "litertLm": {
+    "status": "not-benchmarked-no-local-runtime",
+    "notes": [
+      "Google docs describe LiteRT-LM as relevant for session cloning, kv-cache management, prompt caching/scoring, and stateful inference.",
+      "The public docs route the detailed CPU/GPU quick start through the LiteRT-LM GitHub repo; the Google page shown in this run focuses on Android NPU setup.",
+      "This machine does not have a litertlm executable on PATH. The Python package index lists litert-lm, but no local runtime is installed yet."
+    ]
+  }
+}
