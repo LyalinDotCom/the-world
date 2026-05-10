@@ -194,6 +194,7 @@ button:disabled {
   left: 16px;
   bottom: 16px;
   display: flex;
+  align-items: stretch;
   gap: 8px;
   padding: 8px;
   border: 1px solid rgba(227, 189, 101, 0.28);
@@ -201,6 +202,23 @@ button:disabled {
   background: rgba(16, 19, 15, 0.76);
   box-shadow: 0 12px 34px rgba(0, 0, 0, 0.18);
   backdrop-filter: blur(10px);
+}
+
+#hud .combat-button {
+  min-width: 92px;
+  padding: 6px 10px;
+  border: 1px solid rgba(244, 211, 109, 0.34);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.05);
+  color: #f1dfb0;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+#hud .combat-button.active {
+  border-color: rgba(244, 211, 109, 0.9);
+  background: rgba(173, 112, 48, 0.42);
+  color: #fff3c9;
 }
 
 .combat-panel div {

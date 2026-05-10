@@ -263,7 +263,9 @@ const event = await ai.areaEvent({
 
 In the playable demo, the four authored landmarks preload their area events after model warmup. The app constrains each landmark to a specific event lane so every structure gets a distinct trigger instead of four independent random rolls. If a player reaches a landmark before preload finishes, the trigger visibly waits for Gemma instead of using canned content. Failed event generation is shown once with a backoff instead of silently retrying forever.
 
-Combat is intentionally renderer-owned demo scaffolding around these events. It is there so developers can play through Gemma-shaped scenarios and judge whether the generated setup actually works under pressure: bandits rushing the player, constables arriving after a risky conversation, and the player having enough agency to survive or disengage. The model does not award kills, remove health, decide loot, or complete quests.
+Combat is intentionally renderer-owned demo scaffolding around these events. It is there so developers can play through Gemma-shaped scenarios and judge whether the generated setup actually works under pressure: bandits rushing the player, constables arriving after a risky conversation, villagers witnessing violence, and the player having enough agency to survive or disengage. The model does not award kills, remove health, decide loot, or complete quests.
+
+Bow use is an explicit aim mode: click the Bow button to enter aiming, use the reticle to fire, then click Bow again to return to normal click-to-talk behavior. Bow shots can kill ordinary villagers, which sends nearby witnesses into Gemma-authored reactions such as panic, fleeing, screaming, or charging the player. Sword use is defensive and immediate: pressing Space swings at the nearest active enemy only, such as a charging villager, constable, or hostile event actor. It cannot target uninvolved villagers.
 
 ## Runtime Controls
 
@@ -373,7 +375,7 @@ The IPC bridge validates payloads with the shared Zod schemas from `@game-llm/co
 - Random spawn near one of the towns.
 - Left-side click-to-talk panel with speaker portraits, chat history, immediate local goodbye, and a visible thinking animation while Gemma is generating.
 - NPC mood/disposition state and Gemma-controlled refusal/end-conversation behavior for lines that need assessment.
-- Basic renderer-owned combat for making generated scenarios playable: health that slowly recovers, bow aiming with ten arrows, sword slashes, road-spawned constables, and hostile event actors. It is not the SDK product; it is a thin experience layer that lets us evaluate Gemma-generated situations through play.
+- Basic renderer-owned combat for making generated scenarios playable: health that slowly recovers, Bow-button aim mode with ten arrows, Space-bar sword slashes, road-spawned constables, hostile event actors, and Gemma-authored villager witness reactions. It is not the SDK product; it is a thin experience layer that lets us evaluate Gemma-generated situations through play.
 - Gemma-generated landmark area events for the Old Mill, Abandoned Castle, Sunken Chapel, and Black Bell Tower.
 - Typed trigger execution for generated bandit ambushes, mysterious beings, and strange structure sounds.
 - Private NPC groups that speak to each other and refuse interruption.

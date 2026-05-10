@@ -96,6 +96,20 @@ interface SlashArc {
 }
 
 type WeaponMode = 'bow' | 'sword';
+type VillagerReactionKind = 'panic' | 'flee' | 'scream' | 'charge';
+
+interface VillagerCombatState {
+  health: number;
+  reaction?: VillagerReactionKind;
+  reactedTo?: string;
+  x?: number;
+  y?: number;
+  target?: Vec2;
+  startedAt?: number;
+  expiresAt?: number;
+  nextAttackAt?: number;
+  inFlight?: boolean;
+}
 
 type DiagnosticsTab = 'trace' | 'machine' | 'perf';
 type BootPhaseStatus = 'pending' | 'active' | 'ready' | 'degraded' | 'failed';
@@ -161,6 +175,8 @@ let ambientMeetups: AmbientMeetup[] = [];
 let constables: Constable[] = [];
 let projectiles: Projectile[] = [];
 let slashes: SlashArc[] = [];
+const villagerCombat = new Map<string, VillagerCombatState>();
+const deadNpcIds = new Set<string>();
 let areaEventActors: AreaEventActor[] = [];
 const areaEventStates = new Map<string, AreaEventState>(landmarks.map((landmark) => [landmark.id, {
   triggered: false,
@@ -188,6 +204,7 @@ const playerMaxHealth = 10;
 let playerHealth = playerMaxHealth;
 let arrowCount = 10;
 let weaponMode: WeaponMode = 'bow';
+let bowAimActive = false;
 let nextAttackAt = 0;
 let mouseWorld: Vec2 = { x: player.x + 80, y: player.y };
 let perfLogStatus: PerfLogStatus = { active: false, samples: 0 };
@@ -218,7 +235,11 @@ hud.innerHTML = `
     <strong id="coord-line"></strong>
   </div>
   <div id="interaction" class="interaction"></div>
-  <div id="combat" class="combat-panel"></div>
+  <div id="combat" class="combat-panel">
+    <button id="bow-toggle" class="combat-button" type="button" aria-pressed="false">Bow</button>
+    <div><span>Health</span><strong id="combat-health">10/10</strong></div>
+    <div><span>Arrows</span><strong id="combat-arrows">10</strong></div>
+  </div>
   <aside class="minimap-panel">
     <header>Map</header>
     <canvas id="minimap" aria-label="Mini map"></canvas>
@@ -343,7 +364,9 @@ const diagGraphCtx: CanvasRenderingContext2D = diagGraphContext;
 const regionEl = document.querySelector<HTMLSpanElement>('#region-line')!;
 const coordEl = document.querySelector<HTMLSpanElement>('#coord-line')!;
 const interactionEl = document.querySelector<HTMLDivElement>('#interaction')!;
-const combatEl = document.querySelector<HTMLDivElement>('#combat')!;
+const bowToggle = document.querySelector<HTMLButtonElement>('#bow-toggle')!;
+const combatHealthEl = document.querySelector<HTMLElement>('#combat-health')!;
+const combatArrowsEl = document.querySelector<HTMLElement>('#combat-arrows')!;
 const minimapCanvas = document.querySelector<HTMLCanvasElement>('#minimap')!;
 const minimapContext = minimapCanvas.getContext('2d');
 if (!minimapContext) {
@@ -388,6 +411,10 @@ canvas.addEventListener('click', (event) => {
   const point = screenToWorld(event);
   mouseWorld = point;
   const now = performance.now();
+  if (bowAimActive) {
+    shootBow(now);
+    return;
+  }
   const clicked = clickableNpcs
     .map((npc) => ({ npc, distance: distance(npcPosition(npc, now, clickableNpcs), point) }))
     .filter((entry) => entry.distance < 42)
@@ -396,7 +423,12 @@ canvas.addEventListener('click', (event) => {
     void startConversation(clicked);
     return;
   }
-  attack(now);
+});
+bowToggle.addEventListener('click', () => {
+  bowAimActive = !bowAimActive;
+  weaponMode = 'bow';
+  interactionKey = '';
+  renderHud();
 });
 window.addEventListener('keydown', (event) => {
   if (event.repeat) return;
@@ -413,22 +445,11 @@ window.addEventListener('keydown', (event) => {
   }
   const key = event.key.toLowerCase();
   if (!activeNpc && !dialogueInput.matches(':focus')) {
-    if (key === '1') {
-      weaponMode = 'bow';
-      interactionKey = '';
-      renderHud();
-      return;
-    }
-    if (key === '2' || key === 'q') {
-      weaponMode = weaponMode === 'bow' ? 'sword' : 'bow';
-      interactionKey = '';
-      renderHud();
-      return;
-    }
-    if (key === 'f' || key === ' ' || key === '/') {
+    if (key === ' ' || key === '/') {
       event.preventDefault();
       weaponMode = 'sword';
-      attack(performance.now());
+      bowAimActive = false;
+      swingSword(performance.now());
       return;
     }
   }
@@ -779,7 +800,7 @@ function update(dt: number, now: number): void {
     return;
   }
   player.moving = false;
-  const nearby = world.npcsNear(player.x, player.y, 760);
+  const nearby = aliveNpcsNear(player.x, player.y, 760);
   ambientMeetups = ambientMeetups.filter((meetup) => meetup.expiresAt > now);
   if (!activeNpc && !dialogueInput.matches(':focus')) {
     let dx = 0;
@@ -814,6 +835,7 @@ function update(dt: number, now: number): void {
   bubbles = bubbles.filter((bubble) => bubble.expiresAt > now);
   footsteps = footsteps.filter((footstep) => footstep.expiresAt > now);
   updateCombat(dt, now);
+  updateVillagerReactions(dt, now, nearby);
   updateAreaEventActors(dt, now);
   updateConstables(dt, now);
   if (activeNpc && activeNpcPosition && distance(activeNpcPosition, player) > 260) {
@@ -837,7 +859,7 @@ function draw(now: number): void {
   ctx.clearRect(0, 0, cssWidth, cssHeight);
   drawStaticWorld({ ctx, world, camera, width: cssWidth, height: cssHeight });
   const npcs = [
-    ...world.npcsNear(player.x, player.y, Math.max(cssWidth, cssHeight)),
+    ...aliveNpcsNear(player.x, player.y, Math.max(cssWidth, cssHeight)),
     ...areaEventActors.filter((actor) => distance(actor, player) < Math.max(cssWidth, cssHeight))
   ];
   drawActors({
@@ -887,6 +909,10 @@ function maybeAddFootstep(now: number): void {
 }
 
 function npcPosition(npc: GeneratedNpc, now: number, crowd: GeneratedNpc[] = []): Vec2 {
+  const villagerState = villagerCombat.get(npc.id);
+  if (villagerState?.x !== undefined && villagerState.y !== undefined) {
+    return { x: villagerState.x, y: villagerState.y };
+  }
   if (npc.id.startsWith('area.')) {
     return { x: npc.x, y: npc.y };
   }
@@ -1180,40 +1206,45 @@ function updateCombat(dt: number, now: number): void {
   }
 }
 
-function attack(now: number): void {
+function shootBow(now: number): void {
   if (now < nextAttackAt || bootVisible || activeNpc) return;
   const aim = aimVector();
   player.heading = Math.atan2(aim.y, aim.x);
-  if (weaponMode === 'bow') {
-    if (arrowCount <= 0) {
-      bubbles.push({
-        id: `player:no-arrows:${now}`,
-        npcId: 'player',
-        x: player.x,
-        y: player.y,
-        text: 'Quiver empty.',
-        startsAt: now,
-        expiresAt: now + 1_600,
-        kind: 'reaction'
-      });
-      nextAttackAt = now + 280;
-      return;
-    }
-    arrowCount -= 1;
-    nextAttackAt = now + 420;
-    projectiles.push({
-      id: `arrow:${now}`,
-      x: player.x + aim.x * 20,
-      y: player.y + aim.y * 20,
-      vx: aim.x * 860,
-      vy: aim.y * 860,
-      damage: 3,
-      createdAt: now,
-      expiresAt: now + 1_150
+  if (arrowCount <= 0) {
+    bubbles.push({
+      id: `player:no-arrows:${now}`,
+      npcId: 'player',
+      x: player.x,
+      y: player.y,
+      text: 'Quiver empty.',
+      startsAt: now,
+      expiresAt: now + 1_600,
+      kind: 'reaction'
     });
+    nextAttackAt = now + 280;
     return;
   }
+  arrowCount -= 1;
+  nextAttackAt = now + 420;
+  projectiles.push({
+    id: `arrow:${now}`,
+    x: player.x + aim.x * 20,
+    y: player.y + aim.y * 20,
+    vx: aim.x * 860,
+    vy: aim.y * 860,
+    damage: 3,
+    createdAt: now,
+    expiresAt: now + 1_150
+  });
+}
 
+function swingSword(now: number): void {
+  if (now < nextAttackAt || bootVisible || activeNpc) return;
+  const target = nearestSwordTarget();
+  if (target) {
+    player.heading = Math.atan2(target.y - player.y, target.x - player.x);
+    mouseWorld = target;
+  }
   nextAttackAt = now + 560;
   slashes.push({
     id: `slash:${now}`,
@@ -1244,21 +1275,39 @@ function damageFirstHit(projectile: Projectile, now: number): boolean {
     damageAreaActor(actor.id, projectile.damage, now);
     return true;
   }
+  const villager = aliveNpcsNear(projectile.x, projectile.y, 34)[0];
+  if (villager) {
+    damageVillager(villager, projectile.damage, now);
+    return true;
+  }
   return false;
 }
 
 function damageMelee(now: number): void {
   const aim = aimVector();
-  for (const constable of [...constables]) {
-    if (isMeleeHit(constable, aim)) {
-      damageConstable(constable.id, 1, now);
-    }
-  }
-  for (const actor of [...areaEventActors]) {
-    if (actor.persona.mood === 'hostile' && isMeleeHit(actor, aim)) {
-      damageAreaActor(actor.id, 1, now);
-    }
-  }
+  const target = nearestSwordTarget();
+  if (!target || !isMeleeHit(target, aim)) return;
+  if (target.kind === 'constable') damageConstable(target.id, 1, now);
+  else if (target.kind === 'area') damageAreaActor(target.id, 1, now);
+  else damageVillager(target.npc, 1, now);
+}
+
+type SwordTarget =
+  | ({ kind: 'constable'; id: string } & Vec2)
+  | ({ kind: 'area'; id: string } & Vec2)
+  | ({ kind: 'villager'; npc: GeneratedNpc } & Vec2);
+
+function nearestSwordTarget(): SwordTarget | undefined {
+  const targets: SwordTarget[] = [
+    ...constables.map((constable) => ({ kind: 'constable' as const, id: constable.id, x: constable.x, y: constable.y })),
+    ...areaEventActors
+      .filter((actor) => actor.persona.mood === 'hostile')
+      .map((actor) => ({ kind: 'area' as const, id: actor.id, x: actor.x, y: actor.y })),
+    ...attackingVillagers().map((npc) => ({ kind: 'villager' as const, npc, ...npcPosition(npc, performance.now()) }))
+  ];
+  return targets
+    .filter((target) => distance(target, player) <= 90)
+    .sort((a, b) => distance(a, player) - distance(b, player))[0];
 }
 
 function isMeleeHit(target: Vec2, aim: Vec2): boolean {
@@ -1307,6 +1356,195 @@ function damageAreaActor(id: string, amount: number, now: number): void {
   }
 }
 
+function damageVillager(npc: GeneratedNpc, amount: number, now: number): void {
+  if (deadNpcIds.has(npc.id)) return;
+  const state = villagerState(npc);
+  state.health -= amount;
+  const pos = npcPosition(npc, now);
+  state.x = pos.x;
+  state.y = pos.y;
+  if (state.health <= 0) {
+    deadNpcIds.add(npc.id);
+    villagerCombat.delete(npc.id);
+    bubbles.push({
+      id: `${npc.id}:down:${now}`,
+      npcId: npc.id,
+      x: pos.x,
+      y: pos.y,
+      text: `${npc.persona.name} falls.`,
+      startsAt: now,
+      expiresAt: now + 2_900,
+      kind: 'reaction'
+    });
+    notifyVillagersOfViolence(npc, pos, now);
+  } else {
+    startVillagerReaction(npc, 'charge', npc.id, now, pos);
+  }
+}
+
+function notifyVillagersOfViolence(victim: GeneratedNpc, origin: Vec2, now: number): void {
+  const witnesses = aliveNpcsNear(origin.x, origin.y, 430)
+    .filter((npc) => npc.id !== victim.id)
+    .map((npc) => ({ npc, pos: npcPosition(npc, now) }))
+    .filter((entry) => distance(entry.pos, origin) < 430)
+    .sort((a, b) => distance(a.pos, origin) - distance(b.pos, origin))
+    .slice(0, 5);
+  for (const [index, witness] of witnesses.entries()) {
+    const reaction = villagerReactionFor(witness.npc, victim, index);
+    startVillagerReaction(witness.npc, reaction, victim.id, now, witness.pos);
+    void requestVillagerReactionBark(witness.npc, victim, reaction, now + index * 120);
+  }
+}
+
+function startVillagerReaction(npc: GeneratedNpc, reaction: VillagerReactionKind, eventId: string, now: number, pos = npcPosition(npc, now)): void {
+  const state = villagerState(npc);
+  const away = normalized({ x: pos.x - player.x, y: pos.y - player.y });
+  state.reaction = reaction;
+  state.reactedTo = eventId;
+  state.x = pos.x;
+  state.y = pos.y;
+  state.startedAt = now;
+  state.expiresAt = now + (reaction === 'charge' ? 32_000 : 13_000);
+  state.nextAttackAt = reaction === 'charge' ? now + 850 : undefined;
+  state.target = reaction === 'charge'
+    ? { x: player.x, y: player.y }
+    : reaction === 'flee'
+      ? clampToMap({ x: pos.x + away.x * 520, y: pos.y + away.y * 520 }, 60)
+      : pos;
+}
+
+async function requestVillagerReactionBark(npc: GeneratedNpc, victim: GeneratedNpc, reaction: VillagerReactionKind, startsAt: number): Promise<void> {
+  const state = villagerState(npc);
+  if (state.inFlight) return;
+  state.inFlight = true;
+  try {
+    const turn = await ai.dialogue({
+      npc: stripRuntimeNpc(npc),
+      request: {
+        playerText: `The player just shot ${victim.persona.name} with a bow. React immediately by ${reaction}.`,
+        scene: sceneAt(npc),
+        player: {
+          id: 'player',
+          knownFacts: playerKnownFacts(),
+          visibleEquipment: ['drawn bow', 'travel cloak', 'worn boots']
+        },
+        relationship: 'witness to sudden violence',
+        npcState: dialogueController.stateForRequest(npc),
+        recentDialogue: [
+          { speaker: 'System', text: `Reaction lane: ${reaction}. Stay in character. One short line only.` }
+        ]
+      },
+      options: {
+        timeoutMs: 18_000
+      }
+    });
+    const pos = npcPosition(npc, performance.now());
+    const failed = turn.trace?.fallback;
+    bubbles.push({
+      id: `${npc.id}:violence-reaction:${startsAt}`,
+      npcId: npc.id,
+      x: pos.x,
+      y: pos.y,
+      text: failed ? `Gemma reaction failed: ${turn.safetyFlags[0]?.message ?? 'fallback'}` : turn.text,
+      startsAt,
+      expiresAt: startsAt + 4_800,
+      kind: 'reaction'
+    });
+    if (failed) {
+      traceLine = `villager reaction fallback / ${npc.persona.name}`;
+      traceDetail = turn.trace?.rawText.slice(0, 420) ?? '';
+    }
+  } catch (error) {
+    traceLine = `villager reaction failed / ${errorMessage(error)}`;
+  } finally {
+    state.inFlight = false;
+  }
+}
+
+function updateVillagerReactions(dt: number, now: number, nearby: GeneratedNpc[]): void {
+  for (const [id, state] of [...villagerCombat.entries()]) {
+    if (state.expiresAt && now > state.expiresAt && state.reaction !== 'charge') {
+      state.reaction = undefined;
+      state.target = undefined;
+      continue;
+    }
+    if (!state.reaction || state.x === undefined || state.y === undefined) continue;
+    const npc = nearby.find((candidate) => candidate.id === id) ?? aliveNpcsNear(state.x, state.y, 80).find((candidate) => candidate.id === id);
+    if (!npc) continue;
+    if (state.reaction === 'charge') {
+      state.target = { x: player.x, y: player.y };
+    }
+    if (state.reaction === 'flee' || state.reaction === 'charge') {
+      const target = state.target ?? { x: state.x, y: state.y };
+      const dx = target.x - state.x;
+      const dy = target.y - state.y;
+      const length = Math.max(1, Math.hypot(dx, dy));
+      const speed = state.reaction === 'charge' ? 120 : 150;
+      const next = clampToMap({
+        x: state.x + (dx / length) * speed * dt,
+        y: state.y + (dy / length) * speed * dt
+      }, 28);
+      if (!staticCollisionAtInWorld(next, 14, world)) {
+        state.x = next.x;
+        state.y = next.y;
+      }
+    }
+    if (state.reaction === 'charge' && distance({ x: state.x, y: state.y }, player) < 42 && now > (state.nextAttackAt ?? 0)) {
+      playerHealth -= 0.7;
+      state.nextAttackAt = now + 950;
+      bubbles.push({
+        id: `${id}:hit:${now}`,
+        npcId: id,
+        x: state.x,
+        y: state.y,
+        text: `${npc.persona.name} strikes at you.`,
+        startsAt: now,
+        expiresAt: now + 1_500,
+        kind: 'reaction'
+      });
+    }
+  }
+}
+
+function villagerReactionFor(npc: GeneratedNpc, victim: GeneratedNpc, index: number): VillagerReactionKind {
+  const roll = Math.abs(simpleHash(`${npc.id}:${victim.id}:${index}`)) % 100;
+  if (roll < 24) return 'panic';
+  if (roll < 54) return 'flee';
+  if (roll < 78) return 'scream';
+  return 'charge';
+}
+
+function attackingVillagers(): GeneratedNpc[] {
+  return aliveNpcsNear(player.x, player.y, 180)
+    .filter((npc) => villagerCombat.get(npc.id)?.reaction === 'charge');
+}
+
+function villagerState(npc: GeneratedNpc): VillagerCombatState {
+  let state = villagerCombat.get(npc.id);
+  if (!state) {
+    state = { health: 3 };
+    villagerCombat.set(npc.id, state);
+  }
+  return state;
+}
+
+function aliveNpcsNear(x: number, y: number, radius: number): GeneratedNpc[] {
+  return world.npcsNear(x, y, radius).filter((npc) => !deadNpcIds.has(npc.id));
+}
+
+function normalized(vector: Vec2): Vec2 {
+  const length = Math.max(1, Math.hypot(vector.x, vector.y));
+  return { x: vector.x / length, y: vector.y / length };
+}
+
+function simpleHash(value: string): number {
+  let hash = 0;
+  for (let index = 0; index < value.length; index += 1) {
+    hash = ((hash << 5) - hash + value.charCodeAt(index)) | 0;
+  }
+  return hash;
+}
+
 function updateConstables(dt: number, now: number): void {
   constables = constables.filter((constable) => constable.expiresAt > now);
   for (const constable of constables) {
@@ -1339,14 +1577,23 @@ function updateConstables(dt: number, now: number): void {
 function drawCombat(now: number, camera: Vec2): void {
   const aim = aimVector();
   ctx.save();
-  ctx.strokeStyle = weaponMode === 'bow' ? 'rgba(244, 211, 109, 0.44)' : 'rgba(218, 234, 241, 0.36)';
-  ctx.lineWidth = 1.5;
-  ctx.setLineDash([6, 7]);
-  ctx.beginPath();
-  ctx.moveTo(player.x - camera.x, player.y - camera.y);
-  ctx.lineTo(player.x + aim.x * 90 - camera.x, player.y + aim.y * 90 - camera.y);
-  ctx.stroke();
-  ctx.setLineDash([]);
+  if (bowAimActive) {
+    const rx = mouseWorld.x - camera.x;
+    const ry = mouseWorld.y - camera.y;
+    ctx.strokeStyle = 'rgba(244, 211, 109, 0.86)';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(rx, ry, 13, 0, Math.PI * 2);
+    ctx.moveTo(rx - 20, ry);
+    ctx.lineTo(rx - 7, ry);
+    ctx.moveTo(rx + 7, ry);
+    ctx.lineTo(rx + 20, ry);
+    ctx.moveTo(rx, ry - 20);
+    ctx.lineTo(rx, ry - 7);
+    ctx.moveTo(rx, ry + 7);
+    ctx.lineTo(rx, ry + 20);
+    ctx.stroke();
+  }
 
   for (const projectile of projectiles) {
     ctx.strokeStyle = '#f1d590';
@@ -1532,10 +1779,11 @@ function renderHud(): void {
   updateAmbientFlowLine();
   regionEl.textContent = regionName(player.x, player.y);
   coordEl.textContent = `${Math.round(player.x)}, ${Math.round(player.y)}${performance.now() < wallPulseUntil ? ' / map edge' : ''}`;
-  combatEl.innerHTML = `
-    <div><span>Health</span><strong>${Math.max(0, Math.ceil(playerHealth))}/${playerMaxHealth}</strong></div>
-    <div><span>Weapon</span><strong>${weaponMode === 'bow' ? `Bow ${arrowCount}` : 'Sword'}</strong></div>
-  `;
+  bowToggle.classList.toggle('active', bowAimActive);
+  bowToggle.setAttribute('aria-pressed', String(bowAimActive));
+  bowToggle.textContent = bowAimActive ? 'Bow Aiming' : 'Bow';
+  combatHealthEl.textContent = `${Math.max(0, Math.ceil(playerHealth))}/${playerMaxHealth}`;
+  combatArrowsEl.textContent = `${arrowCount}`;
 
   const key = activeNpc ? 'active' : clickableNpcs.map((npc) => {
     const session = dialogueController.sessionFor(npc);
