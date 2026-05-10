@@ -1,6 +1,7 @@
 import { access } from 'node:fs/promises';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import type { ChatMessage, GameAIProvider, GenerateRequest, GenerateResult, ProviderHealth } from '@game-llm/core';
 
 export type LiteRtLmBackend = 'cpu' | 'gpu';
@@ -16,6 +17,8 @@ export interface LiteRtLmProviderOptions {
   timeoutMs?: number;
   cwd?: string;
   env?: NodeJS.ProcessEnv;
+  bridgeScript?: string;
+  pythonCommand?: string;
   runCommand?: LiteRtLmCommandRunner;
 }
 
@@ -50,8 +53,11 @@ export class LiteRtLmGameAIProvider implements GameAIProvider {
   private readonly timeoutMs: number;
   private readonly cwd: string | undefined;
   private readonly env: NodeJS.ProcessEnv | undefined;
+  private readonly bridgeScript: string;
+  private readonly pythonCommand: string;
   private readonly runCommand: LiteRtLmCommandRunner;
   private readonly validateCommand: boolean;
+  private bridge: LiteRtLmBridge | undefined;
 
   constructor(options: LiteRtLmProviderOptions = {}) {
     this.command = options.command ?? process.env.THE_WORLD_LITERT_LM_BIN ?? defaultLiteRtLmCommand();
@@ -64,6 +70,8 @@ export class LiteRtLmGameAIProvider implements GameAIProvider {
     this.timeoutMs = options.timeoutMs ?? defaultTimeoutMs;
     this.cwd = options.cwd;
     this.env = options.env;
+    this.bridgeScript = options.bridgeScript ?? defaultBridgeScript();
+    this.pythonCommand = options.pythonCommand ?? pythonCommandForLiteRtCommand(this.command);
     this.runCommand = options.runCommand ?? runProcess;
     this.validateCommand = !options.runCommand;
   }
@@ -151,11 +159,29 @@ export class LiteRtLmGameAIProvider implements GameAIProvider {
     };
   }
 
+  close(): void {
+    this.bridge?.close();
+    this.bridge = undefined;
+  }
+
   private async runLiteRtLm(prompt: string, options: {
     temperature: number;
     timeoutMs: number;
     signal?: AbortSignal;
   }): Promise<string> {
+    if (this.validateCommand) {
+      const bridge = await this.getBridge(options.timeoutMs);
+      const text = await bridge.generate({
+        prompt,
+        temperature: options.temperature,
+        topP: this.topP,
+        seed: this.seed,
+        timeoutMs: options.timeoutMs,
+        signal: options.signal
+      });
+      return cleanLiteRtLmOutput(text);
+    }
+
     const args = [
       'run',
       this.model,
@@ -186,10 +212,30 @@ export class LiteRtLmGameAIProvider implements GameAIProvider {
     }
     return text;
   }
+
+  private async getBridge(timeoutMs: number): Promise<LiteRtLmBridge> {
+    if (!this.bridge) {
+      this.bridge = new LiteRtLmBridge({
+        pythonCommand: this.pythonCommand,
+        bridgeScript: this.bridgeScript,
+        model: this.model,
+        backend: this.backend,
+        maxNumTokens: this.maxNumTokens,
+        cwd: this.cwd,
+        env: this.env
+      });
+    }
+    await this.bridge.ready(timeoutMs);
+    return this.bridge;
+  }
 }
 
 export function defaultLiteRtLmCommand(): string {
   return path.resolve(process.cwd(), '.venv/litert-lm/bin/litert-lm');
+}
+
+export function defaultBridgeScript(): string {
+  return path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../bridge/litert_bridge.py');
 }
 
 export function promptForRequest(request: GenerateRequest): string {
@@ -245,6 +291,179 @@ function optionalNumber(value: string | undefined): number | undefined {
   if (!value) return undefined;
   const numeric = Number(value);
   return Number.isFinite(numeric) ? numeric : undefined;
+}
+
+function pythonCommandForLiteRtCommand(command: string): string {
+  const binDirectory = path.dirname(command);
+  const candidate = path.join(binDirectory, 'python');
+  return candidate;
+}
+
+interface LiteRtLmBridgeOptions {
+  pythonCommand: string;
+  bridgeScript: string;
+  model: string;
+  backend: LiteRtLmBackend;
+  maxNumTokens: number;
+  cwd?: string;
+  env?: NodeJS.ProcessEnv;
+}
+
+interface LiteRtLmBridgeGenerateOptions {
+  prompt: string;
+  temperature: number;
+  topP: number;
+  seed?: number;
+  timeoutMs: number;
+  signal?: AbortSignal;
+}
+
+class LiteRtLmBridge {
+  private readonly child;
+  private readyPromise: Promise<void>;
+  private nextId = 1;
+  private buffer = '';
+  private pending = new Map<number, {
+    resolve(text: string): void;
+    reject(error: Error): void;
+    timeout: NodeJS.Timeout;
+  }>();
+
+  constructor(private readonly options: LiteRtLmBridgeOptions) {
+    this.child = spawn(options.pythonCommand, [options.bridgeScript], {
+      cwd: options.cwd,
+      env: { ...process.env, ...options.env },
+      stdio: ['pipe', 'pipe', 'pipe']
+    });
+    this.child.stdout.setEncoding('utf8');
+    this.child.stderr.setEncoding('utf8');
+    this.child.stdout.on('data', (chunk) => this.onStdout(chunk));
+    this.child.stderr.on('data', (chunk) => {
+      if (process.env.THE_WORLD_LITERT_DEBUG === '1') {
+        process.stderr.write(String(chunk));
+      }
+    });
+    this.child.on('error', (error) => this.rejectAll(error));
+    this.child.on('close', (code, signal) => {
+      this.rejectAll(new Error(`LiteRT-LM bridge exited with ${code ?? signal}.`));
+    });
+
+    this.readyPromise = new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        reject(new Error('LiteRT-LM bridge startup timed out.'));
+      }, 60_000);
+      this.pending.set(0, {
+        resolve: () => {
+          clearTimeout(timeout);
+          resolve();
+        },
+        reject: (error) => {
+          clearTimeout(timeout);
+          reject(error);
+        },
+        timeout
+      });
+    });
+    this.child.stdin.write(`${JSON.stringify({
+      model: options.model,
+      backend: options.backend,
+      maxNumTokens: options.maxNumTokens
+    })}\n`);
+  }
+
+  async ready(_timeoutMs: number): Promise<void> {
+    await this.readyPromise;
+  }
+
+  async generate(options: LiteRtLmBridgeGenerateOptions): Promise<string> {
+    await this.ready(options.timeoutMs);
+    const id = this.nextId++;
+    return await new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        this.pending.delete(id);
+        reject(new Error(`LiteRT-LM bridge request timed out after ${Math.round(options.timeoutMs / 1000)}s.`));
+      }, options.timeoutMs);
+      const abort = () => {
+        clearTimeout(timeout);
+        this.pending.delete(id);
+        const error = new Error('Operation aborted.');
+        error.name = 'AbortError';
+        reject(error);
+      };
+      options.signal?.addEventListener('abort', abort, { once: true });
+      this.pending.set(id, {
+        resolve: (text) => {
+          clearTimeout(timeout);
+          options.signal?.removeEventListener('abort', abort);
+          resolve(text);
+        },
+        reject: (error) => {
+          clearTimeout(timeout);
+          options.signal?.removeEventListener('abort', abort);
+          reject(error);
+        },
+        timeout
+      });
+      this.child.stdin.write(`${JSON.stringify({
+        id,
+        prompt: options.prompt,
+        temperature: options.temperature,
+        topP: options.topP,
+        seed: options.seed
+      })}\n`);
+    });
+  }
+
+  close(): void {
+    this.rejectAll(new Error('LiteRT-LM bridge closed.'));
+    this.child.kill('SIGTERM');
+  }
+
+  private onStdout(chunk: string): void {
+    this.buffer += chunk;
+    while (true) {
+      const newline = this.buffer.indexOf('\n');
+      if (newline === -1) return;
+      const line = this.buffer.slice(0, newline).trim();
+      this.buffer = this.buffer.slice(newline + 1);
+      if (!line) continue;
+      this.onMessage(JSON.parse(line) as Record<string, unknown>);
+    }
+  }
+
+  private onMessage(message: Record<string, unknown>): void {
+    if (message.type === 'ready') {
+      const pending = this.pending.get(0);
+      this.pending.delete(0);
+      pending?.resolve('');
+      return;
+    }
+    if (message.type === 'fatal') {
+      const error = new Error(String(message.error ?? 'LiteRT-LM bridge failed.'));
+      const pending = this.pending.get(0);
+      this.pending.delete(0);
+      pending?.reject(error);
+      this.rejectAll(error);
+      return;
+    }
+    const id = Number(message.id);
+    const pending = this.pending.get(id);
+    if (!pending) return;
+    this.pending.delete(id);
+    if (message.type === 'error') {
+      pending.reject(new Error(String(message.error ?? 'LiteRT-LM bridge request failed.')));
+      return;
+    }
+    pending.resolve(String(message.text ?? ''));
+  }
+
+  private rejectAll(error: Error): void {
+    for (const [id, pending] of this.pending) {
+      clearTimeout(pending.timeout);
+      pending.reject(error);
+      this.pending.delete(id);
+    }
+  }
 }
 
 async function runProcess(command: string, args: string[], options: {

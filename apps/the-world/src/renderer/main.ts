@@ -73,6 +73,15 @@ interface Constable {
 }
 
 type DiagnosticsTab = 'trace' | 'machine' | 'perf';
+type BootPhaseStatus = 'pending' | 'active' | 'ready' | 'degraded' | 'failed';
+type BootPhaseId = 'runtime' | 'model' | 'ambient';
+
+interface BootPhase {
+  id: BootPhaseId;
+  label: string;
+  status: BootPhaseStatus;
+  detail: string;
+}
 
 const canvasElement = document.querySelector<HTMLCanvasElement>('#world');
 const hudElement = document.querySelector<HTMLDivElement>('#hud');
@@ -140,11 +149,23 @@ let fpsHistory: number[] = [];
 let latestDiagnostics: DiagnosticsSample | undefined;
 let fps = 0;
 const fpsCounter = new FpsCounter();
+const dialogueTimeoutMs = 60_000;
+const ambientStartupJobLimit = 6;
 let perfLogStatus: PerfLogStatus = { active: false, samples: 0 };
 let perfLogLastSampleAt = 0;
 let perfLogWriteInFlight = false;
 let diagnosticsTab: DiagnosticsTab = 'machine';
 let diagnosticsGraphOpen = true;
+let bootVisible = true;
+let bootCanEnter = false;
+let bootTitle = 'Loading The World';
+let bootDetail = 'Preparing local Gemma runtime.';
+let pendingAmbientCacheModelLabel: string | undefined;
+let bootPhases: BootPhase[] = [
+  { id: 'runtime', label: 'Checking runtime', status: 'active', detail: 'Connecting to the selected local AI stack.' },
+  { id: 'model', label: 'Loading Gemma model', status: 'pending', detail: 'Waiting for runtime health.' },
+  { id: 'ambient', label: 'Preparing ambient town chatter', status: 'pending', detail: 'Waiting for model warmup.' }
+];
 
 hud.innerHTML = `
   <div class="topbar">
@@ -223,6 +244,18 @@ hud.innerHTML = `
       <button id="dialogue-goodbye" type="button">Goodbye</button>
     </form>
   </section>
+  <section id="boot-screen" class="boot-screen" aria-live="polite">
+    <div class="boot-copy">
+      <span class="boot-kicker">Local AI Runtime</span>
+      <h1 id="boot-title">Loading The World</h1>
+      <p id="boot-detail">Preparing local Gemma runtime.</p>
+      <div id="boot-phases" class="boot-phases"></div>
+      <div class="boot-actions">
+        <button id="boot-enter" type="button" disabled>Enter World</button>
+        <button id="boot-diagnostics" type="button">Diagnostics</button>
+      </div>
+    </div>
+  </section>
 `;
 
 const providerEl = document.querySelector<HTMLSpanElement>('#provider-line')!;
@@ -276,9 +309,16 @@ const dialogueInput = document.querySelector<HTMLInputElement>('#dialogue-input'
 const dialogueSend = document.querySelector<HTMLButtonElement>('#dialogue-send')!;
 const dialogueGoodbye = document.querySelector<HTMLButtonElement>('#dialogue-goodbye')!;
 const dialogueClose = document.querySelector<HTMLButtonElement>('#dialogue-close')!;
+const bootScreenEl = document.querySelector<HTMLElement>('#boot-screen')!;
+const bootTitleEl = document.querySelector<HTMLElement>('#boot-title')!;
+const bootDetailEl = document.querySelector<HTMLElement>('#boot-detail')!;
+const bootPhasesEl = document.querySelector<HTMLElement>('#boot-phases')!;
+const bootEnterButton = document.querySelector<HTMLButtonElement>('#boot-enter')!;
+const bootDiagnosticsButton = document.querySelector<HTMLButtonElement>('#boot-diagnostics')!;
 
 window.addEventListener('resize', resize);
 canvas.addEventListener('click', (event) => {
+  if (bootVisible) return;
   if (activeNpc) return;
   const rect = canvas.getBoundingClientRect();
   const camera = cameraForPlayer();
@@ -297,6 +337,12 @@ canvas.addEventListener('click', (event) => {
 });
 window.addEventListener('keydown', (event) => {
   if (event.repeat) return;
+  if (bootVisible) {
+    if (event.key === 'Enter' && bootCanEnter) {
+      dismissBootScreen();
+    }
+    return;
+  }
   if (event.key === 'Escape' && activeNpc) {
     event.preventDefault();
     closeConversation();
@@ -353,6 +399,12 @@ graphToggle.addEventListener('click', () => {
 perfLogToggle.addEventListener('click', () => {
   void togglePerfLog();
 });
+bootEnterButton.addEventListener('click', dismissBootScreen);
+bootDiagnosticsButton.addEventListener('click', () => {
+  traceOpen = true;
+  diagnosticsTab = 'trace';
+  renderHud();
+});
 
 resize();
 void initializeRuntime();
@@ -362,25 +414,53 @@ startGameLoop(frame);
 
 async function initializeRuntime(): Promise<void> {
   try {
+    updateBootPhase('runtime', 'active', 'Checking selected provider and model availability.');
     const health = await ai.health();
     providerLine = `${health.provider}${health.model ? ` / ${health.model}` : ''} / ${health.mode}`;
     providerBaseLine = providerLine;
+    updateBootPhase(
+      'runtime',
+      health.ok ? 'ready' : 'degraded',
+      health.ok ? `${health.provider} ${health.model ?? ''} is available.`.trim() : health.message ?? health.mode
+    );
     renderHud();
   } catch (error) {
     providerLine = `runtime unavailable / ${errorMessage(error)}`;
+    updateBootPhase('runtime', 'failed', errorMessage(error));
+    bootTitle = 'Runtime Unavailable';
+    bootDetail = 'The selected local AI stack could not be reached. Conversations will show failures rather than fake dialogue.';
+    bootCanEnter = true;
   }
 
   try {
+    updateBootPhase('model', 'active', 'Loading and warming Gemma for schema-bound NPC dialogue.');
     warmupLine = 'warming local model...';
     renderHud();
     const health = await ai.warmup();
     warmupLine = health.ok ? `warm / ${health.model ?? health.provider}` : `warmup degraded / ${health.message ?? health.mode}`;
+    updateBootPhase(
+      'model',
+      health.ok ? 'ready' : 'degraded',
+      health.ok ? `${health.model ?? health.provider} is warm.` : health.message ?? health.mode
+    );
     renderHud();
     if (health.ok) {
-      await pregenerateAmbientCache(health.model ?? health.provider);
+      bootTitle = 'The World Is Ready';
+      bootDetail = 'Gemma is warm. Ambient town chatter will continue preparing in the background.';
+      bootCanEnter = true;
+      pendingAmbientCacheModelLabel = health.model ?? health.provider;
+      updateBootPhase('ambient', 'pending', 'A small nearby ambient cache will prepare after you enter.');
+    } else {
+      bootTitle = 'Warmup Degraded';
+      bootDetail = 'The model did not fully warm up. You can enter, but NPC responses may fail or be slow.';
+      bootCanEnter = true;
     }
   } catch (error) {
     warmupLine = `warmup failed / ${errorMessage(error)}`;
+    updateBootPhase('model', 'failed', errorMessage(error));
+    bootTitle = 'Warmup Failed';
+    bootDetail = 'The model failed during warmup. You can enter to inspect diagnostics, but dialogue may fail.';
+    bootCanEnter = true;
   }
   renderHud();
 }
@@ -396,13 +476,15 @@ async function pregenerateAmbientCache(modelLabel: string): Promise<void> {
       ambientCacheReady = true;
       warmupLine = `warm / ${modelLabel} / no ambient cache jobs`;
       providerLine = `${providerBaseLine} / ambient cache empty`;
+      updateBootPhase('ambient', 'ready', 'No ambient cache jobs were needed.');
       return;
     }
+    updateBootPhase('ambient', 'active', `Preparing ambient cache 0/${jobs.length}.`);
     warmupLine = `warm / ${modelLabel} / preparing ambient cache 0/${jobs.length}`;
     providerLine = `${providerBaseLine} / caching ambient 0/${jobs.length}`;
     traceLine = 'pregeneration / ambient cache starting';
     renderHud();
-    const chunkSize = 2;
+    const chunkSize = 1;
     for (let index = 0; index < jobs.length; index += chunkSize) {
       const chunk = jobs.slice(index, index + chunkSize);
       const result = await ai.preGenerate({ jobs: chunk, maxConcurrency: 1 });
@@ -411,16 +493,23 @@ async function pregenerateAmbientCache(modelLabel: string): Promise<void> {
       warmupLine = `warm / ${modelLabel} / ambient cache ${Math.min(index + chunk.length, jobs.length)}/${jobs.length}`;
       providerLine = `${providerBaseLine} / caching ambient ${Math.min(index + chunk.length, jobs.length)}/${jobs.length}`;
       traceLine = `pregeneration / generated ${generated}, failed ${failed}`;
+      updateBootPhase('ambient', 'active', `Generated ${generated}; failed ${failed}; ${Math.min(index + chunk.length, jobs.length)}/${jobs.length} jobs attempted.`);
       renderHud();
     }
     ambientCacheReady = generated > 0;
     warmupLine = `warm / ${modelLabel} / ambient cache ${generated}/${jobs.length}`;
     providerLine = `${providerBaseLine} / ambient cached ${generated}/${jobs.length}`;
     traceLine = `pregeneration ready / ${generated}/${jobs.length} cached`;
+    updateBootPhase(
+      'ambient',
+      ambientCacheReady ? 'ready' : 'degraded',
+      `Generated ${generated}/${jobs.length}; failed ${failed}.`
+    );
   } catch (error) {
     warmupLine = `warm / ${modelLabel} / ambient cache degraded`;
     providerLine = `${providerBaseLine} / ambient cache degraded`;
     traceLine = `pregeneration failed / ${errorMessage(error)}`;
+    updateBootPhase('ambient', 'degraded', errorMessage(error));
   } finally {
     ambientCacheInFlight = false;
     renderHud();
@@ -432,7 +521,7 @@ function buildPregenerationJobs(): GameAIPreGenerateJob[] {
   const open = npcs.filter((npc) => npc.conversationPolicy === 'open');
   const jobs: GameAIPreGenerateJob[] = [];
 
-  for (const npc of open.slice(0, 10)) {
+  for (const npc of open.slice(0, 3)) {
     jobs.push({
       type: 'bark',
       npc: stripRuntimeNpc(npc),
@@ -440,7 +529,7 @@ function buildPregenerationJobs(): GameAIPreGenerateJob[] {
     });
   }
 
-  for (const [a, b] of privatePairsFrom(npcs).slice(0, 4)) {
+  for (const [a, b] of privatePairsFrom(npcs).slice(0, 1)) {
     jobs.push({
       type: 'overhear',
       npc: stripRuntimeNpc(a),
@@ -448,7 +537,7 @@ function buildPregenerationJobs(): GameAIPreGenerateJob[] {
     });
   }
 
-  for (const [a, b] of openPairsFrom(open).slice(0, 3)) {
+  for (const [a, b] of openPairsFrom(open).slice(0, 2)) {
     jobs.push({
       type: 'overhear',
       npc: stripRuntimeNpc(a),
@@ -456,7 +545,7 @@ function buildPregenerationJobs(): GameAIPreGenerateJob[] {
     });
   }
 
-  return jobs.slice(0, 24);
+  return jobs.slice(0, ambientStartupJobLimit);
 }
 
 function pregenerationNpcPool(): GeneratedNpc[] {
@@ -517,6 +606,12 @@ function frame(now: number): void {
 }
 
 function update(dt: number, now: number): void {
+  if (bootVisible) {
+    clickableNpcs = [];
+    nearestNpc = undefined;
+    renderHud();
+    return;
+  }
   player.moving = false;
   const nearby = world.npcsNear(player.x, player.y, 760);
   ambientMeetups = ambientMeetups.filter((meetup) => meetup.expiresAt > now);
@@ -853,6 +948,7 @@ function renderHud(): void {
   graphToggle.textContent = diagnosticsGraphOpen ? 'Graph ^' : 'Graph v';
   graphToggle.setAttribute('aria-expanded', String(diagnosticsGraphOpen));
   diagGraphWrapEl.classList.toggle('hidden', !diagnosticsGraphOpen);
+  renderBootScreen();
   updateAmbientFlowLine();
   regionEl.textContent = regionName(player.x, player.y);
   coordEl.textContent = `${Math.round(player.x)}, ${Math.round(player.y)}${performance.now() < wallPulseUntil ? ' / map edge' : ''}`;
@@ -879,6 +975,38 @@ function renderHud(): void {
       interactionEl.innerHTML = `<div><strong>${escapeHtml(regionName(player.x, player.y))}</strong><span>open road</span></div>`;
     }
   }
+}
+
+function updateBootPhase(id: BootPhaseId, status: BootPhaseStatus, detail: string): void {
+  bootPhases = bootPhases.map((phase) => phase.id === id ? { ...phase, status, detail } : phase);
+  renderBootScreen();
+}
+
+function dismissBootScreen(): void {
+  if (!bootCanEnter) return;
+  bootVisible = false;
+  bootScreenEl.classList.add('hidden');
+  const modelLabel = pendingAmbientCacheModelLabel;
+  pendingAmbientCacheModelLabel = undefined;
+  if (modelLabel) {
+    window.setTimeout(() => void pregenerateAmbientCache(modelLabel), 8_000);
+  }
+  renderHud();
+}
+
+function renderBootScreen(): void {
+  bootScreenEl.classList.toggle('hidden', !bootVisible);
+  bootTitleEl.textContent = bootTitle;
+  bootDetailEl.textContent = bootDetail;
+  bootEnterButton.disabled = !bootCanEnter;
+  bootEnterButton.textContent = bootCanEnter ? 'Enter World' : 'Loading';
+  bootPhasesEl.innerHTML = bootPhases.map((phase) => `
+    <div class="boot-phase ${phase.status}">
+      <span>${escapeHtml(phase.label)}</span>
+      <strong>${escapeHtml(phase.status)}</strong>
+      <p>${escapeHtml(phase.detail)}</p>
+    </div>
+  `).join('');
 }
 
 function modelDiagnosticLine(): string {
@@ -973,6 +1101,9 @@ async function interruptPrivateConversation(npc: GeneratedNpc): Promise<void> {
           { speaker: 'System', text: `${npc.persona.name} is already speaking privately with companions.` },
           { speaker: 'You', text: 'Can I ask you something?' }
         ]
+      },
+      options: {
+        timeoutMs: dialogueTimeoutMs
       }
     });
     if (turn.trace?.fallback) {
@@ -1029,7 +1160,8 @@ async function sendToNpc(text: string): Promise<void> {
         }))
       },
       options: {
-        assess: true
+        assess: shouldRunDialogueAssessment(text),
+        timeoutMs: dialogueTimeoutMs
       }
     });
     if (turn.trace?.fallback) {
@@ -1087,6 +1219,10 @@ function applyDialogueTurn(npc: GeneratedNpc, turn: DialogueTurn): void {
       `raw: ${turn.trace.rawText.slice(0, 360)}`
     ].filter(Boolean).join('\n');
   }
+}
+
+function shouldRunDialogueAssessment(text: string): boolean {
+  return /\b(attack|burn|fight|hurt|kill|murder|rob|stab|threat|force|weapon|knife|sword|torch|die)\b/i.test(text);
 }
 
 function showThinkingBubble(npc: GeneratedNpc): string {

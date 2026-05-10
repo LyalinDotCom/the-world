@@ -514,6 +514,113 @@ button:disabled {
   box-shadow: 0 0 0 3px rgba(244, 211, 109, 0.12);
 }
 
+.boot-screen {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background:
+    linear-gradient(180deg, rgba(18, 21, 17, 0.74), rgba(10, 12, 10, 0.88)),
+    radial-gradient(circle at 50% 35%, rgba(227, 189, 101, 0.16), transparent 42%);
+  pointer-events: auto;
+  z-index: 20;
+}
+
+.boot-screen.hidden {
+  display: none;
+}
+
+.boot-copy {
+  width: min(640px, calc(100vw - 32px));
+  padding: 24px;
+  border: 1px solid rgba(227, 189, 101, 0.38);
+  border-radius: 8px;
+  background: rgba(18, 21, 17, 0.92);
+  box-shadow: 0 24px 100px rgba(0, 0, 0, 0.46);
+  backdrop-filter: blur(12px);
+}
+
+.boot-kicker {
+  display: block;
+  color: #9dc27c;
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.boot-copy h1 {
+  margin: 8px 0 8px;
+  color: #f4d36d;
+  font-size: 32px;
+  line-height: 1.1;
+}
+
+.boot-copy > p {
+  margin: 0;
+  color: #d8caa8;
+  line-height: 1.4;
+}
+
+.boot-phases {
+  display: grid;
+  gap: 8px;
+  margin-top: 18px;
+}
+
+.boot-phase {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 4px 12px;
+  padding: 10px;
+  border: 1px solid rgba(238, 211, 149, 0.14);
+  border-radius: 7px;
+  background: rgba(241, 229, 199, 0.06);
+}
+
+.boot-phase span {
+  color: #eadbb8;
+  font-size: 14px;
+}
+
+.boot-phase strong {
+  color: #b6ad90;
+  font-size: 11px;
+  text-transform: uppercase;
+}
+
+.boot-phase p {
+  grid-column: 1 / -1;
+  margin: 0;
+  color: #aebf9b;
+  font-size: 12px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.boot-phase.active strong {
+  color: #8ab6c9;
+}
+
+.boot-phase.ready strong {
+  color: #9dc27c;
+}
+
+.boot-phase.degraded strong {
+  color: #e3bd65;
+}
+
+.boot-phase.failed strong {
+  color: #f0a06f;
+}
+
+.boot-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 18px;
+}
+
 .fatal {
   position: absolute;
   left: 50%;

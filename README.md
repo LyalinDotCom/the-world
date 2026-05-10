@@ -1,6 +1,6 @@
 # The World
 
-**The World** is a prototype SDK for game-native local AI plus a playable Electron demo that proves the runtime path works with Gemma through Ollama.
+**The World** is a prototype SDK for game-native local AI plus a playable Electron demo that proves the runtime path works with Gemma through Ollama and experimental LiteRT-LM.
 
 The core promise:
 
@@ -13,7 +13,8 @@ This repo is not mainly a game. The game is the showcase. The main product idea 
 ## What Developers Get
 
 - `@game-llm/core`: NPC definitions, scene context, schema-bound recipes, prompt compilation, memory, cache, validation, repair, fallback behavior, cancellation, and a deterministic mock provider for tests.
-- `@game-llm/ollama`: local Ollama provider with health checks, installed-model discovery, warmup, structured JSON calls, Gemma-friendly defaults, timing/token metrics, and `AbortSignal` support.
+- `@game-llm/ollama`: local Ollama provider with health checks, installed-model discovery, warmup, structured JSON calls, Gemma-friendly defaults, timing/token metrics, runtime options, and `AbortSignal` support.
+- `@game-llm/litert-lm`: experimental LiteRT-LM provider with imported-model health checks, warmup, structured output cleanup, and a persistent Python bridge that keeps the LiteRT engine loaded between requests.
 - `@game-llm/electron`: safe IPC bridge so a renderer can request dialogue, barks, overheard exchanges, warmup, pregeneration, and cancellation without arbitrary model access.
 - `apps/the-world`: a playable canvas/Electron demo that uses the SDK under real runtime pressure.
 
@@ -31,7 +32,12 @@ const ai = createGameAI({
   provider: ollamaProvider({
     model: 'gemma4:e4b',
     host: 'http://127.0.0.1:11434',
-    keepAlive: '10m'
+    keepAlive: '30m',
+    think: false,
+    runtimeOptions: {
+      numCtx: 4096,
+      numBatch: 128
+    }
   }),
   world: {
     id: 'emberfall',
@@ -154,9 +160,48 @@ console.log(turn.events);
 
 The game engine still owns authority. The model can propose events; the game decides what to accept.
 
+## Runtime Stacks
+
+The playable demo asks which Gemma stack to use on startup:
+
+- **Ollama Gemma4 E4B**: the default path. It uses `gemma4:e4b`, `think:false`, `num_ctx:4096`, `num_batch:128`, and `keep_alive:30m`.
+- **LiteRT-LM Gemma4 E4B**: experimental. It uses the imported `gemma4-e4b-litert` model through a persistent GPU bridge. Warmup and tiny prompts are fast, but the current full SDK dialogue prompt is still noticeably slower than Ollama in the game.
+
+You can skip the startup chooser with:
+
+```sh
+THE_WORLD_AI_STACK=ollama npm start
+THE_WORLD_AI_STACK=litert-lm npm start
+```
+
+Important runtime environment variables:
+
+```sh
+THE_WORLD_MODEL=gemma4:e4b
+THE_WORLD_KEEP_ALIVE=30m
+THE_WORLD_THINK=false
+THE_WORLD_NUM_CTX=4096
+THE_WORLD_NUM_BATCH=128
+THE_WORLD_TIMEOUT_MS=30000
+
+THE_WORLD_LITERT_MODEL=gemma4-e4b-litert
+THE_WORLD_LITERT_BACKEND=gpu
+THE_WORLD_LITERT_MAX_TOKENS=4096
+THE_WORLD_LITERT_LM_BIN=.venv/litert-lm/bin/litert-lm
+```
+
+LiteRT-LM setup is local to your machine:
+
+```sh
+npm run install:litert-lm
+npm run import:litert-gemma4
+```
+
+The imported LiteRT model lives under `~/.litert-lm/models`, not in this repo. The local `.venv/litert-lm` install is ignored by git.
+
 ## Dialogue Assessment And Actions
 
-The demo uses three small model calls for player conversations:
+The demo can use three small model calls for player conversations:
 
 1. Generate the NPC reply.
 2. Assess mood and danger.
@@ -169,6 +214,8 @@ type DialogueActionType = 'none' | 'endConversation' | 'callForHelp';
 ```
 
 In the sample game, `callForHelp` spawns constables and ends the conversation. In a real game, the same event would go through the game's validation and authority layer.
+
+For responsiveness, the playable demo now skips the mood/action assessment pass for ordinary low-risk lines and keeps it on for threat-like or guard-relevant dialogue. That keeps a normal greeting to one model call while still testing Gemma's judgment when the player says something risky.
 
 ## Runtime Controls
 
@@ -195,6 +242,8 @@ runtime: {
 ```
 
 For ambient text, the shipped game pre-generates barks and overheard exchanges, then uses cache-only reads while the player walks. That prevents background Gemma calls from dragging down movement and frame rate.
+
+In the current demo, ambient pregeneration no longer blocks the player from entering the world. The loading screen waits for runtime health and model warmup, then schedules a small capped ambient cache job in the background after the player has had a short window to start interacting.
 
 **Refresh pregenerated content**
 
@@ -269,12 +318,14 @@ The IPC bridge validates payloads with the shared Zod schemas from `@game-llm/co
 `apps/the-world` is a stress test for the SDK ideas:
 
 - Fixed large 2D map with Rivergate, Mosswake, Cindervale, woods, roads, houses, and marked landmarks.
+- Startup stack chooser for Ollama or experimental LiteRT-LM, with `THE_WORLD_AI_STACK` for deterministic runs.
+- Loading screen that checks runtime health, warms the selected Gemma model, and shows failures plainly.
 - Random spawn near one of the towns.
 - Click-to-talk NPC interaction with free-text Gemma replies.
-- NPC mood/disposition state and Gemma-controlled refusal/end-conversation behavior.
+- NPC mood/disposition state and Gemma-controlled refusal/end-conversation behavior for lines that need assessment.
 - Private NPC groups that speak to each other and refuse interruption.
 - Ambient stage manager that caps visible ambient speakers, rotates topics, and moves NPCs together before short exchanges.
-- Pregenerated ambient cache so walking does not constantly call Gemma.
+- Small background ambient cache so walking does not constantly call Gemma or block startup.
 - Minimap, invisible map walls, building collision, walking effects, and live FPS.
 - Diagnostics panel for provider/model/cache/fallback, prompt traces, CPU, GPU, GPU memory, machine memory, app memory, and optional JSONL performance logs.
 
@@ -293,7 +344,9 @@ For renderer development with Vite:
 npm run dev
 ```
 
-The demo defaults to `gemma4:e4b`. Override the model with:
+The Vite dev server uses `127.0.0.1:5179` with a strict port so Electron does not accidentally attach to another local game running on the usual Vite port.
+
+The demo defaults to Ollama `gemma4:e4b`. Override the model with:
 
 ```sh
 THE_WORLD_MODEL=gemma4:e2b npm start
@@ -304,8 +357,26 @@ Expected startup log:
 ```txt
 The World: renderer loaded.
 The World: Gemma IPC bridge ready.
-The World: warmup ready (ollama gemma4:e4b)
+The World: ollama-gemma4-e4b warmup ready.
 ```
+
+## Gemma Performance Notes
+
+The benchmark harness runs the real SDK path against multiple runtime options:
+
+```sh
+npm run benchmark:gemma
+```
+
+Benchmark artifacts are written to `docs/gemma-runtime-benchmark*.json` and `docs/gemma-runtime-benchmark*.md`. Running notes and measurements live in `testing/perf-testing.md`.
+
+Current preference from testing:
+
+- Use Ollama + `gemma4:e4b` GGUF Q4 for the playable path.
+- Keep `think:false` for Gemma NPC interactions; thinking mode is too slow for short game turns here.
+- Use `num_ctx:4096` as the realistic conversation context target for town NPCs.
+- Keep ambient life cache-first and capped; generation is too slow to run freely while the player walks.
+- Keep LiteRT-LM available as an experimental stack, but do not make it the default until the full dialogue prompt is faster.
 
 ## Verification
 
@@ -328,6 +399,10 @@ packages/ollama
   Ollama provider, model discovery, warmup, structured JSON generation,
   request cancellation, and tests.
 
+packages/litert-lm
+  Experimental LiteRT-LM provider, imported-model health checks,
+  persistent GPU bridge, structured output cleanup, and tests.
+
 packages/electron
   Main/preload IPC bridge, shared schema validation, request cancellation,
   pregeneration bridge, and tests.
@@ -345,7 +420,7 @@ apps/the-world
 - Prompt replay and schema failure inspection in devtools.
 - Save-file memory integration.
 - Better packaging with app icon, installer flow, and model setup UX.
-- Provider adapters beyond Ollama.
+- Faster LiteRT-LM full-prompt dialogue, provider packaging, and model setup UX.
 
 ## Agent Continuity
 

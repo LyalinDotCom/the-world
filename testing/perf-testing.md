@@ -53,7 +53,7 @@ Last updated: 2026-05-10.
 - `packages/ollama/src/index.ts` now accepts `think: boolean | "low" | "medium" | "high"`.
 - `packages/ollama/test/index.test.ts` verifies these settings are passed through.
 - Added `packages/litert-lm` with `litertLmProvider`.
-  - Uses the LiteRT-LM CLI directly instead of the alpha HTTP server because the bundled server currently initializes `litert_lm.Engine(..., backend=CPU)`.
+  - Uses the LiteRT-LM CLI for model discovery and a persistent Python bridge for generation instead of the alpha HTTP server because the bundled server currently initializes `litert_lm.Engine(..., backend=CPU)`.
   - Defaults to GPU backend, `gemma4-e4b-litert`, 4096 KV/cache tokens, and the same temperature/top-p defaults as Ollama.
   - Strips JSON Markdown fences before core schema parsing.
 - Added startup runtime selection in the Electron main process:
@@ -116,6 +116,12 @@ LiteRT-LM ad hoc generation, GPU, 4096 max tokens:
   - `litertLmProvider` health found imported `gemma4-e4b-litert`.
   - Tiny schema prompt returned `{"text":"ready"}` in 4.8s.
   - Real `GameAI` NPC dialogue call returned valid schema-bound dialogue in 6.0s with no fallback.
+- Follow-up implementation note: the original provider used `litert-lm run` per SDK call, which made in-game LiteRT-LM feel awful because every call paid process/engine startup. It now uses a persistent Python bridge that keeps a GPU LiteRT engine alive.
+- Persistent bridge timing:
+  - warmup: about 1.75s
+  - tiny repeated schema calls after warmup: about 0.7s
+  - full `GameAI` NPC dialogue prompt: about 7.9s to 8.5s
+- Conclusion: LiteRT-LM is promising for a smaller prompt path, but the current full schema-bound SDK prompt is still too heavy to make LiteRT-LM obviously better than Ollama in-game.
 
 Recommendation: keep Ollama as the playable default for now because it has more benchmark coverage, but use startup selection to test the new LiteRT-LM provider in-game. LiteRT-LM GPU has the first-token and decode profile we want.
 
@@ -140,6 +146,11 @@ Why: 2048 produced malformed JSON in ordinary game-dialogue cases, while 8192 in
 - SDK session cache works for ambient bark calls:
   - refresh calls were about 1.9s to 2.7s on GGUF E4B.
   - cache-only hit was 0ms in trace and effectively instant wall time.
+- Follow-up startup timing showed individual ambient generations are much slower in realistic current prompts:
+  - Ollama `gemma4:e4b`: warmup 10.1s, bark 10.3s, overhear 10.7s.
+  - LiteRT-LM persistent bridge: warmup 1.9s, bark 11.8s, overhear 12.6s.
+- Do not block the loading screen on the full ambient cache. Startup now gates only runtime/model warmup, then schedules a small nearby ambient cache in the background after the player enters.
+- Initial ambient startup cache is capped at 6 jobs. The old 24-job boot queue could make the player wait several minutes.
 - Recommendation: keep ambient and movement-adjacent systems cache-first/pre-generated.
 - Do not cache first-time player dialogue broadly unless the cache key is intentionally scenario-specific; player dialogue needs real model judgment.
 

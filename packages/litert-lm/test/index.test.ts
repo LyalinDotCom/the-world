@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { cleanLiteRtLmOutput, litertLmProvider, promptForRequest } from '../src/index.js';
+import { cleanLiteRtLmOutput, defaultBridgeScript, litertLmProvider, promptForRequest } from '../src/index.js';
 
 describe('litertLmProvider', () => {
   it('runs the LiteRT-LM CLI with GPU backend and schema prompt', async () => {
@@ -80,5 +80,9 @@ describe('LiteRT-LM prompt helpers', () => {
 
   it('strips JSON markdown fences', () => {
     expect(cleanLiteRtLmOutput('```json\n{"ok":true}\n```')).toBe('{"ok":true}');
+  });
+
+  it('resolves the bundled bridge script next to the built package', () => {
+    expect(defaultBridgeScript()).toContain('bridge/litert_bridge.py');
   });
 });

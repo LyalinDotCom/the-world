@@ -63,7 +63,11 @@ export function createRuntime(ipcMain: IpcMain, reportError: (kind: string, erro
     reportError('warmup failed', error);
   });
 
-  return registerGameAIIpc(ipcMain, ai);
+  const unregisterIpc = registerGameAIIpc(ipcMain, ai);
+  return () => {
+    unregisterIpc();
+    closeProvider(provider);
+  };
 }
 
 function createOllamaProvider() {
@@ -121,4 +125,10 @@ export function parseRuntimeStack(value: string | undefined): RuntimeStack | und
   if (value === 'ollama' || value === 'ollama-gemma4-e4b') return 'ollama-gemma4-e4b';
   if (value === 'litert' || value === 'litert-lm' || value === 'litert-lm-gemma4-e4b') return 'litert-lm-gemma4-e4b';
   return undefined;
+}
+
+function closeProvider(provider: unknown): void {
+  if (typeof provider === 'object' && provider !== null && 'close' in provider && typeof provider.close === 'function') {
+    provider.close();
+  }
 }
