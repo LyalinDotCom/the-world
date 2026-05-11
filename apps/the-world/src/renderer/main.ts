@@ -209,6 +209,7 @@ let wallPulseUntil = 0;
 let interactionKey = '';
 let activeNpcPosition: Vec2 | undefined;
 let activeDialogueRequestId: string | undefined;
+let dialogueStatus: { text: string; kind: 'info' | 'error'; expiresAt: number } | undefined;
 let traceOpen = false;
 let clickableNpcs: GeneratedNpc[] = [];
 let diagnosticsHistory: number[] = [];
@@ -1062,7 +1063,7 @@ function maybeTriggerAreaEvent(now: number): void {
           npcId: `area:${landmark.id}`,
           x: landmark.x,
           y: landmark.y,
-          text: `${landmark.name} resists the event. Gemma failed: ${state.failed}`,
+          text: `${landmark.name} falls quiet. Nothing answers.`,
           startsAt: now,
           expiresAt: now + 5_800,
           kind: 'ambient'
@@ -1078,7 +1079,7 @@ function maybeTriggerAreaEvent(now: number): void {
         npcId: `area:${landmark.id}`,
         x: landmark.x,
         y: landmark.y,
-        text: `${landmark.name} stirs as Gemma prepares an event...`,
+        text: `${landmark.name} stirs. Something is gathering...`,
         startsAt: now,
         expiresAt: now + 5_200,
         kind: 'ambient'
@@ -1507,20 +1508,21 @@ async function requestVillagerReactionBark(npc: GeneratedNpc, victim: GeneratedN
     });
     const pos = npcPosition(npc, performance.now());
     const failed = turn.trace?.fallback;
+    if (failed) {
+      traceLine = `villager reaction fallback / ${npc.persona.name}`;
+      traceDetail = turn.trace?.rawText.slice(0, 420) ?? '';
+      return;
+    }
     bubbles.push({
       id: `${npc.id}:violence-reaction:${startsAt}`,
       npcId: npc.id,
       x: pos.x,
       y: pos.y,
-      text: failed ? `Gemma reaction failed: ${turn.safetyFlags[0]?.message ?? 'fallback'}` : turn.text,
+      text: turn.text,
       startsAt,
       expiresAt: startsAt + 4_800,
       kind: 'reaction'
     });
-    if (failed) {
-      traceLine = `villager reaction fallback / ${npc.persona.name}`;
-      traceDetail = turn.trace?.rawText.slice(0, 420) ?? '';
-    }
   } catch (error) {
     traceLine = `villager reaction failed / ${errorMessage(error)}`;
   } finally {
@@ -2050,7 +2052,15 @@ function renderDialogue(): void {
   dialogueGoodbye.disabled = busy;
   dialogueGoodbye.textContent = ended ? 'Leave' : 'Goodbye';
   dialogueInput.placeholder = busy ? 'Waiting for reply...' : ended ? 'Conversation ended' : 'Message';
-  dialogueThinkingEl.classList.toggle('hidden', !busy);
+  if (dialogueStatus && performance.now() > dialogueStatus.expiresAt) {
+    dialogueStatus = undefined;
+  }
+  dialogueThinkingEl.classList.toggle('hidden', !busy && !dialogueStatus);
+  dialogueThinkingEl.classList.toggle('error', dialogueStatus?.kind === 'error');
+  const dialogueThinkingText = dialogueThinkingEl.querySelector('p');
+  if (dialogueThinkingText) {
+    dialogueThinkingText.textContent = busy ? 'Thinking' : dialogueStatus?.text ?? '';
+  }
 }
 
 async function startConversation(npc: GeneratedNpc): Promise<void> {
@@ -2137,6 +2147,7 @@ async function sendToNpc(text: string): Promise<void> {
   const requestId = nextAiRequestId('dialogue', npc.id);
   activeDialogueRequestId = requestId;
   busy = true;
+  dialogueStatus = undefined;
   const thinkingBubbleId = showThinkingBubble(npc);
   conversation.push({ speaker: 'You', text, kind: 'player' });
   renderDialogue();
@@ -2171,9 +2182,13 @@ async function sendToNpc(text: string): Promise<void> {
     if (activeNpc?.id !== npc.id) return;
     clearBubble(thinkingBubbleId);
     const message = errorMessage(error);
-    conversation.push({ speaker: 'System', text: message, kind: 'system' });
     traceLine = `dialogue failed / ${message}`;
     traceDetail = '';
+    dialogueStatus = {
+      text: 'No reply. See diagnostics.',
+      kind: 'error',
+      expiresAt: performance.now() + 4_500
+    };
   } finally {
     if (activeDialogueRequestId === requestId) {
       activeDialogueRequestId = undefined;
@@ -2338,6 +2353,7 @@ function closeConversation(): void {
   busy = false;
   ended = false;
   conversation = [];
+  dialogueStatus = undefined;
   interactionKey = '';
   renderDialogue();
 }

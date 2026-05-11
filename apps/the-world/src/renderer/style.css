@@ -681,6 +681,15 @@ button:disabled {
   margin: 0;
 }
 
+.dialogue-thinking.error {
+  color: #e0a08d;
+}
+
+.dialogue-thinking.error span {
+  background: #c65f48;
+  animation: none;
+}
+
 @keyframes thinking-dot {
   0%,
   80%,
