@@ -25,7 +25,7 @@ The package boundary is deliberate: **core knows games, providers know models, a
 
 ## SDK Quick Start
 
-These packages are local workspace packages right now. A future published version would look like normal NPM installs, but in this repo you can import directly from the workspaces.
+These packages are local workspace packages right now. In this repo, import directly from the workspaces.
 
 ```ts
 import { createGameAI } from '@game-llm/core';
@@ -433,7 +433,7 @@ Current preference from runtime + model testing:
 - Keep `think:false` for Gemma NPC interactions; thinking mode is too slow for short game turns here.
 - Use `num_ctx:4096` as the realistic conversation context target for town NPCs.
 - Keep ambient life cache-first and capped; generation is too slow to run freely while the player walks.
-- Keep LiteRT-LM available as an experimental stack, but do not make it the default until the full dialogue prompt is faster.
+- Keep LiteRT-LM available as an experimental stack; the current benchmark does not justify choosing it first for full dialogue prompts.
 
 ## Verification
 
@@ -472,17 +472,3 @@ apps/the-world
   Electron shell, canvas renderer, procedural world, ambient director,
   area-event triggers, diagnostics, performance logging, and playable demo.
 ```
-
-## Roadmap
-
-- YAML authoring for NPCs, recipes, lore, and policies.
-- Lore retrieval with embeddings.
-- Tool wrappers for read-only game-state queries and validated proposed writes.
-- Prompt replay and schema failure inspection in devtools.
-- Save-file memory integration.
-- Better packaging with app icon, installer flow, and model setup UX.
-- Faster LiteRT-LM full-prompt dialogue, provider packaging, and model setup UX.
-
-## Agent Continuity
-
-Long-term project direction is captured in `AGENTS.md` so future sessions keep the same north star: Gemma-powered game life, no fake playable AI fallback, typed game-safe outputs, and a bounded navigable world.
