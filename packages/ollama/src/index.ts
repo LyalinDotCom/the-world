@@ -81,7 +81,7 @@ export class OllamaGameAIProvider implements GameAIProvider {
 
   constructor(options: OllamaProviderOptions = {}) {
     this.host = normalizeHost(options.host ?? process.env.OLLAMA_HOST ?? defaultHost);
-    this.model = options.model ?? process.env.THE_WORLD_MODEL ?? process.env.GAME_LLM_MODEL ?? qualityDefaults[options.quality ?? 'balanced'] ?? defaultModel;
+    this.model = options.model ?? process.env.GAME_LLM_MODEL ?? qualityDefaults[options.quality ?? 'balanced'] ?? defaultModel;
     this.keepAlive = options.keepAlive ?? '10m';
     this.temperature = options.temperature ?? 0.75;
     this.topP = options.topP ?? 0.9;

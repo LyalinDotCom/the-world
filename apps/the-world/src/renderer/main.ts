@@ -2358,6 +2358,7 @@ function isSafeRoadPoint(point: Vec2): boolean {
 }
 
 function closeConversation(): void {
+  cancelActiveDialogue();
   activeNpc = undefined;
   activeNpcPosition = undefined;
   busy = false;
@@ -2366,6 +2367,15 @@ function closeConversation(): void {
   dialogueStatus = undefined;
   interactionKey = '';
   renderDialogue();
+}
+
+function cancelActiveDialogue(): void {
+  const requestId = activeDialogueRequestId;
+  if (!requestId) return;
+  activeDialogueRequestId = undefined;
+  void ai.cancel({ requestId }).catch((error) => {
+    traceLine = `dialogue cancel failed / ${errorMessage(error)}`;
+  });
 }
 
 function nextAiRequestId(kind: string, ownerId: string): string {

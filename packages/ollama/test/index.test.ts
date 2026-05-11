@@ -72,6 +72,31 @@ describe('ollamaProvider', () => {
     });
     expect(calls[0]?.think).toBe('low');
   });
+
+  it('ignores app-specific THE_WORLD model env in reusable provider defaults', async () => {
+    const previous = process.env.THE_WORLD_MODEL;
+    process.env.THE_WORLD_MODEL = 'demo-only-model';
+    const calls: Array<Record<string, unknown>> = [];
+    try {
+      const provider = ollamaProvider({
+        host: 'http://ollama.local',
+        fetchImpl: (async (_url, init) => {
+          calls.push(JSON.parse(String(init?.body)) as Record<string, unknown>);
+          return new Response(JSON.stringify({
+            model: 'gemma4:e4b',
+            message: { role: 'assistant', content: '{"ok":true}' }
+          }));
+        }) as typeof fetch
+      });
+
+      await provider.generate({ messages: [{ role: 'user', content: 'hi' }] });
+
+      expect(calls[0]?.model).toBe('gemma4:e4b');
+    } finally {
+      if (previous === undefined) delete process.env.THE_WORLD_MODEL;
+      else process.env.THE_WORLD_MODEL = previous;
+    }
+  });
 });
 
 describe('listOllamaModels', () => {

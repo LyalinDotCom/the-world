@@ -66,6 +66,36 @@ describe('litertLmProvider', () => {
       mode: 'ready'
     });
   });
+
+  it('ignores app-specific THE_WORLD env in reusable provider defaults', async () => {
+    const previousModel = process.env.THE_WORLD_LITERT_MODEL;
+    const previousBackend = process.env.THE_WORLD_LITERT_BACKEND;
+    process.env.THE_WORLD_LITERT_MODEL = 'demo-only-model';
+    process.env.THE_WORLD_LITERT_BACKEND = 'cpu';
+    const calls: Array<{ command: string; args: string[] }> = [];
+    try {
+      const provider = litertLmProvider({
+        command: '/bin/litert-lm',
+        runCommand: async (command, args) => {
+          calls.push({ command, args });
+          return { stdout: '{"text":"ready"}', stderr: '' };
+        }
+      });
+
+      await provider.generate({ messages: [{ role: 'user', content: 'hi' }] });
+
+      expect(calls[0]?.args).toEqual(expect.arrayContaining([
+        'gemma4-e4b-litert',
+        '--backend',
+        'gpu'
+      ]));
+    } finally {
+      if (previousModel === undefined) delete process.env.THE_WORLD_LITERT_MODEL;
+      else process.env.THE_WORLD_LITERT_MODEL = previousModel;
+      if (previousBackend === undefined) delete process.env.THE_WORLD_LITERT_BACKEND;
+      else process.env.THE_WORLD_LITERT_BACKEND = previousBackend;
+    }
+  });
 });
 
 describe('LiteRT-LM prompt helpers', () => {

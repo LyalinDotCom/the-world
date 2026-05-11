@@ -49,13 +49,13 @@ export class OmlxGameAIProvider implements GameAIProvider {
   private readonly openaiCompatible: ReturnType<typeof createOpenAICompatible>;
 
   constructor(options: OmlxProviderOptions = {}) {
-    this.baseUrl = normalizeBaseUrl(options.baseUrl ?? process.env.THE_WORLD_OMLX_BASE_URL ?? process.env.OMLX_BASE_URL ?? defaultBaseUrl);
-    this.apiKey = options.apiKey ?? process.env.THE_WORLD_OMLX_API_KEY ?? process.env.OMLX_API_KEY ?? '1234';
-    this.model = options.model ?? process.env.THE_WORLD_OMLX_MODEL ?? process.env.THE_WORLD_MODEL ?? defaultModel;
-    this.temperature = options.temperature ?? Number(process.env.THE_WORLD_TEMPERATURE ?? 0.55);
-    this.topP = options.topP ?? Number(process.env.THE_WORLD_TOP_P ?? 0.9);
-    this.timeoutMs = options.timeoutMs ?? Number(process.env.THE_WORLD_TIMEOUT_MS ?? 30_000);
-    this.structuredOutput = options.structuredOutput ?? parseStructuredOutput(process.env.THE_WORLD_OMLX_STRUCTURED_OUTPUT) ?? 'json_schema';
+    this.baseUrl = normalizeBaseUrl(options.baseUrl ?? process.env.OMLX_BASE_URL ?? defaultBaseUrl);
+    this.apiKey = options.apiKey ?? process.env.OMLX_API_KEY ?? '1234';
+    this.model = options.model ?? defaultModel;
+    this.temperature = options.temperature ?? 0.55;
+    this.topP = options.topP ?? 0.9;
+    this.timeoutMs = options.timeoutMs ?? 30_000;
+    this.structuredOutput = options.structuredOutput ?? 'json_schema';
     this.fetchImpl = options.fetchImpl ?? fetch;
     this.openaiCompatible = createOpenAICompatible({
       name: 'omlx',
@@ -174,8 +174,8 @@ export class OmlxGameAIProvider implements GameAIProvider {
 }
 
 export async function listOmlxModels(options: Pick<OmlxProviderOptions, 'baseUrl' | 'apiKey' | 'fetchImpl' | 'timeoutMs'> = {}): Promise<OmlxModelInfo[]> {
-  const baseUrl = normalizeBaseUrl(options.baseUrl ?? process.env.THE_WORLD_OMLX_BASE_URL ?? process.env.OMLX_BASE_URL ?? defaultBaseUrl);
-  const apiKey = options.apiKey ?? process.env.THE_WORLD_OMLX_API_KEY ?? process.env.OMLX_API_KEY ?? '1234';
+  const baseUrl = normalizeBaseUrl(options.baseUrl ?? process.env.OMLX_BASE_URL ?? defaultBaseUrl);
+  const apiKey = options.apiKey ?? process.env.OMLX_API_KEY ?? '1234';
   const fetchImpl = options.fetchImpl ?? fetch;
   const response = await fetchWithTimeout(fetchImpl, `${baseUrl}/models`, {
     method: 'GET',
@@ -218,11 +218,6 @@ function toAiSdkMessages(messages: ChatMessage[], schema: JsonSchema | undefined
       ].join('\n')
     }
   ];
-}
-
-function parseStructuredOutput(value: string | undefined): OmlxStructuredOutputMode | undefined {
-  if (value === 'json_schema' || value === 'json_object' || value === 'none') return value;
-  return undefined;
 }
 
 async function fetchWithTimeout(fetchImpl: typeof fetch, input: RequestInfo | URL, init: RequestInit, timeoutMs: number): Promise<Response> {

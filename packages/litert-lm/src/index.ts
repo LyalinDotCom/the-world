@@ -20,6 +20,7 @@ export interface LiteRtLmProviderOptions {
   bridgeScript?: string;
   pythonCommand?: string;
   runCommand?: LiteRtLmCommandRunner;
+  debug?: boolean;
 }
 
 export interface LiteRtLmCommandResult {
@@ -57,16 +58,17 @@ export class LiteRtLmGameAIProvider implements GameAIProvider {
   private readonly pythonCommand: string;
   private readonly runCommand: LiteRtLmCommandRunner;
   private readonly validateCommand: boolean;
+  private readonly debug: boolean;
   private bridge: LiteRtLmBridge | undefined;
 
   constructor(options: LiteRtLmProviderOptions = {}) {
-    this.command = options.command ?? process.env.THE_WORLD_LITERT_LM_BIN ?? defaultLiteRtLmCommand();
-    this.model = options.model ?? process.env.THE_WORLD_LITERT_MODEL ?? defaultModel;
-    this.backend = options.backend ?? parseBackend(process.env.THE_WORLD_LITERT_BACKEND) ?? 'gpu';
-    this.maxNumTokens = options.maxNumTokens ?? Number(process.env.THE_WORLD_LITERT_MAX_TOKENS ?? 4096);
-    this.temperature = options.temperature ?? Number(process.env.THE_WORLD_TEMPERATURE ?? 0.55);
-    this.topP = options.topP ?? Number(process.env.THE_WORLD_TOP_P ?? 0.9);
-    this.seed = options.seed ?? optionalNumber(process.env.THE_WORLD_LITERT_SEED);
+    this.command = options.command ?? defaultLiteRtLmCommand();
+    this.model = options.model ?? defaultModel;
+    this.backend = options.backend ?? 'gpu';
+    this.maxNumTokens = options.maxNumTokens ?? 4096;
+    this.temperature = options.temperature ?? 0.55;
+    this.topP = options.topP ?? 0.9;
+    this.seed = options.seed;
     this.timeoutMs = options.timeoutMs ?? defaultTimeoutMs;
     this.cwd = options.cwd;
     this.env = options.env;
@@ -74,6 +76,7 @@ export class LiteRtLmGameAIProvider implements GameAIProvider {
     this.pythonCommand = options.pythonCommand ?? pythonCommandForLiteRtCommand(this.command);
     this.runCommand = options.runCommand ?? runProcess;
     this.validateCommand = !options.runCommand;
+    this.debug = options.debug ?? false;
   }
 
   async health(): Promise<ProviderHealth> {
@@ -222,7 +225,8 @@ export class LiteRtLmGameAIProvider implements GameAIProvider {
         backend: this.backend,
         maxNumTokens: this.maxNumTokens,
         cwd: this.cwd,
-        env: this.env
+        env: this.env,
+        debug: this.debug
       });
     }
     await this.bridge.ready(timeoutMs);
@@ -283,16 +287,6 @@ async function canAccess(filePath: string): Promise<boolean> {
   }
 }
 
-function parseBackend(value: string | undefined): LiteRtLmBackend | undefined {
-  return value === 'cpu' || value === 'gpu' ? value : undefined;
-}
-
-function optionalNumber(value: string | undefined): number | undefined {
-  if (!value) return undefined;
-  const numeric = Number(value);
-  return Number.isFinite(numeric) ? numeric : undefined;
-}
-
 function pythonCommandForLiteRtCommand(command: string): string {
   const binDirectory = path.dirname(command);
   const candidate = path.join(binDirectory, 'python');
@@ -307,6 +301,7 @@ interface LiteRtLmBridgeOptions {
   maxNumTokens: number;
   cwd?: string;
   env?: NodeJS.ProcessEnv;
+  debug: boolean;
 }
 
 interface LiteRtLmBridgeGenerateOptions {
@@ -339,7 +334,7 @@ class LiteRtLmBridge {
     this.child.stderr.setEncoding('utf8');
     this.child.stdout.on('data', (chunk) => this.onStdout(chunk));
     this.child.stderr.on('data', (chunk) => {
-      if (process.env.THE_WORLD_LITERT_DEBUG === '1') {
+      if (options.debug) {
         process.stderr.write(String(chunk));
       }
     });
