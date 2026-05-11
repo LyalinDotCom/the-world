@@ -1,7 +1,47 @@
 import { describe, expect, it } from 'vitest';
 import { createGameAI, MockGameAIProvider, type GameAIProvider } from '../src/index.js';
+import { compileDialoguePrompt } from '../src/promptCompiler.js';
 
 describe('GameAI runtime', () => {
+  it('frames feared killer reputation as active dialogue pressure', () => {
+    const messages = compileDialoguePrompt({
+      id: 'npc.guard.elda',
+      persona: {
+        name: 'Elda',
+        role: 'road guard',
+        mood: 'wary',
+        knows: ['Black Bell Tower tolls when travelers vanish.']
+      }
+    }, {
+      playerText: 'Hello.',
+      scene: {
+        location: 'Low Bell Road',
+        visibleFeatures: ['Black Bell Tower'],
+        contextualFacts: ['Black Bell Tower has no rope and no bell ringer.']
+      },
+      player: {
+        id: 'player',
+        knownFacts: ['Player character sheet: karma -18 (feared killer).'],
+        reputation: {
+          karma: -18,
+          villagerKills: 2,
+          violentActs: 5
+        }
+      },
+      relationship: 'feared stranger suspected of killing locals'
+    }, {
+      world: { id: 'test-world' },
+      policies: {},
+      memory: []
+    });
+
+    const prompt = messages.map((message) => message.content).join('\n');
+    expect(prompt).toContain('Opening greetings are not exempt from context');
+    expect(prompt).toContain('feared killer');
+    expect(prompt).toContain('2 villager deaths');
+    expect(prompt).toContain('Black Bell Tower');
+  });
+
   it('returns schema-bound dialogue and writes NPC memory', async () => {
     const ai = createGameAI({
       provider: new MockGameAIProvider(),
@@ -202,7 +242,8 @@ describe('GameAI runtime', () => {
     });
 
     expect(prompt).toContain('Answer the player directly before adding color');
-    expect(prompt).toContain('Every non-greeting reply should include at least one concrete detail');
+    expect(prompt).toContain('Every reply should include at least one concrete detail');
+    expect(prompt).toContain('Opening greetings are not exempt from context');
     expect(prompt).toContain('If the player asks what is going on');
     expect(prompt).toContain('If the player asks the NPCs age');
   });

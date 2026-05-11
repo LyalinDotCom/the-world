@@ -45,6 +45,8 @@ describe('ProceduralWorld', () => {
 
     expect(npcs.length).toBeGreaterThan(0);
     expect(npcs.some((npc) => npc.persona.role.length > 0)).toBe(true);
+    expect(npcs.some((npc) => npc.persona.knows?.some((fact) => fact.includes(npc.persona.role)))).toBe(true);
+    expect(npcs.some((npc) => npc.persona.knows?.some((fact) => fact.startsWith('Rumor: ')))).toBe(true);
   });
 
   it('keeps movement blockers limited to structures and map bounds', () => {

@@ -82,7 +82,7 @@ export const npcBarkRecipe: RecipeDefinition<NpcBarkRecipeInput, BarkTurn> = {
   temperature: 0.45,
   maxTokens: 70,
   compile(input, ctx) {
-    return compileBarkPrompt(input.npc, ctx, JSON.stringify(input.request.scene), input.request.reason);
+    return compileBarkPrompt(input.npc, input.request, ctx);
   },
   fallback(input, _ctx, reason) {
     return {

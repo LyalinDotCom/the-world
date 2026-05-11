@@ -1666,6 +1666,17 @@ function playerContext(visibleEquipment: string[] = ['travel cloak', 'worn boots
   };
 }
 
+function playerRelationshipTo(npc: GeneratedNpc): string {
+  if (playerSheet.villagerKills > 0 || playerSheet.karma <= -16) {
+    return npc.persona.role.includes('guard')
+      ? 'suspected killer facing a duty-bound local guard'
+      : 'feared stranger suspected of killing locals';
+  }
+  if (playerSheet.karma <= -8) return 'dangerous stranger locals warn each other about';
+  if (playerSheet.karma < 0) return 'unsettling stranger with a poor local reputation';
+  return 'new acquaintance';
+}
+
 function distanceToSegment(point: Vec2, a: Vec2, b: Vec2): number {
   const dx = b.x - a.x;
   const dy = b.y - a.y;
@@ -2159,7 +2170,7 @@ async function sendToNpc(text: string): Promise<void> {
         playerText: text,
         scene: currentScene(),
         player: playerContext(),
-        relationship: 'new acquaintance',
+        relationship: playerRelationshipTo(npc),
         npcState: dialogueController.stateForRequest(npc),
         recentDialogue: conversation.slice(-8).map((line) => ({
           speaker: line.speaker,
@@ -2241,7 +2252,8 @@ function applyDialogueTurn(npc: GeneratedNpc, turn: DialogueTurn): void {
 }
 
 function shouldRunDialogueAssessment(text: string): boolean {
-  return /\b(attack|burn|fight|hurt|kill|murder|rob|stab|threat|force|weapon|knife|sword|torch|die)\b/i.test(text);
+  return playerSheet.karma <= -8 ||
+    /\b(attack|burn|fight|hurt|kill|murder|rob|stab|threat|force|weapon|knife|sword|torch|die)\b/i.test(text);
 }
 
 function isGoodbyeText(text: string): boolean {
@@ -2678,6 +2690,7 @@ function playerKnownFacts(): string[] {
 
 function stripRuntimeNpc(npc: GeneratedNpc) {
   const session = dialogueController.sessionFor(npc);
+  const scene = sceneAt(npc);
   return {
     id: npc.id,
     persona: {
@@ -2685,7 +2698,7 @@ function stripRuntimeNpc(npc: GeneratedNpc) {
       mood: session.mood,
       knows: [
         ...(npc.persona.knows ?? []),
-        ...landmarkLoreLines()
+        ...(scene.contextualFacts ?? [])
       ]
     },
     memory: npc.memory

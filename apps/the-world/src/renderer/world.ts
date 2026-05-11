@@ -382,6 +382,8 @@ export class ProceduralWorld {
       const role = roles[(localSeed >>> 4) % roles.length]!;
       const mood = moods[(localSeed >>> 7) % moods.length]!;
       const id = `npc.${slug(name)}.${Math.abs(cx)}.${Math.abs(cy)}.${i}`;
+      const localLandmark = nearestLandmarks({ x, y }, 1700)[0] ?? landmarks[(localSeed >>> 20) % landmarks.length];
+      const localTown = nearestTown({ x, y }).town;
       npcs.push({
         id,
         x,
@@ -404,11 +406,8 @@ export class ProceduralWorld {
           ],
           speechStyle: speechStyleFor(role, mood),
           goals: [`keep moving through ${regionName(x, y)}`, 'learn which paths are safe tonight'],
-          knows: [
-            'old roads move after storms',
-            ...landmarks.map((landmark) => landmark.lore)
-          ],
-          doesNotKnow: ['the true cause of the old mill turning at night'],
+          knows: npcKnowledgeFor(role, { x, y }, localLandmark, localTown),
+          doesNotKnow: ['the true cause of the landmarks behaving strangely', 'whether any traveler is telling the whole truth'],
           rules: [
             'Do not reveal hidden causes behind local mysteries.',
             'Keep replies short enough for in-game dialogue.',
@@ -508,6 +507,42 @@ export function landmarkLoreLines(): string[] {
     landmark.lore,
     `Rumor: ${landmark.rumor}.`
   ]);
+}
+
+function npcKnowledgeFor(role: string, point: Vec2, landmark: Landmark | undefined, town: Town): string[] {
+  return [
+    `${role} working near ${regionName(point.x, point.y)} and ${town.name}.`,
+    landmark ? landmark.lore : 'Old roads move after storms.',
+    landmark ? `Rumor: ${landmark.rumor}.` : 'Folk count bell sounds before choosing a road.',
+    roleKnowledge(role)
+  ];
+}
+
+function roleKnowledge(role: string): string {
+  switch (role) {
+    case 'road guard':
+      return 'Road guards watch strangers, fresh blood, drawn weapons, and anyone locals name as dangerous.';
+    case 'miller':
+      return 'Millers know which carts brought grain and which wheels moved without hands.';
+    case 'bell keeper':
+      return 'Bell keepers count wrong tolls and remember which travelers were named afterward.';
+    case 'herbalist':
+      return 'Herbalists hear who needs poultices, who hides wounds, and which paths are avoided.';
+    case 'peddler':
+      return 'Peddlers trade in rumors, prices, missing travelers, and names spoken with fear.';
+    case 'wayfinder':
+      return 'Wayfinders know practical routes, landmarks, bad crossings, and where locals refuse to walk.';
+    case 'charcoal burner':
+      return 'Charcoal burners notice smoke, night movement, and tracks near the woods.';
+    case 'forager':
+      return 'Foragers notice fresh footprints, broken brush, strange sounds, and places animals avoid.';
+    case 'stone cutter':
+      return 'Stone cutters know old marks on towers, chapels, walls, and road stones.';
+    case 'mender':
+      return 'Menders hear household fears while fixing doors, carts, locks, and torn clothes.';
+    default:
+      return 'Locals notice who is safe to speak with and who should be watched from a distance.';
+  }
 }
 
 export function nearestLandmarks(point: Vec2, radius: number): Landmark[] {
