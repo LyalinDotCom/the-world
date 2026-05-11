@@ -1,4 +1,4 @@
-# Gemma Runtime Perf Testing
+# Gemma Runtime + Model Perf Testing
 
 Last updated: 2026-05-10.
 
@@ -236,13 +236,15 @@ Game-side recommendation:
   - `fullDecision`: reply + assessment + action before renderer resolves.
   - `riskOnlyDecision`: deterministic narrow risk screen decides whether to run assessment/action.
 
-## 2026-05-10 Three-Runtime Clean Benchmark
+## 2026-05-10 Three Runtime + Model Clean Benchmark
 
 Command:
 
 ```sh
 npm run benchmark:gemma -- --quick=true --repetitions=1 --timeoutMs=120000 --models=gemma4:e4b --omlxModels=gemma-4-E4B-it-MLX-8bit --litertModels=gemma4-e4b-litert --configs=ollama-ctx4096-q4-thinkOff:ctx=4096:batch=128:think=false --omlxConfigs=omlx-json_schema --litertConfigs=litert-gpu-ctx4096:backend=gpu:ctx=4096
 ```
+
+This compares concrete runtime + model artifact + config combinations, not runtimes in isolation.
 
 Clean run artifacts:
 
@@ -258,7 +260,7 @@ Runtime isolation notes:
 Bug found and fixed:
 
 - The realistic long-followup scenario could exceed the old `npcDialogueRecipe.maxTokens = 220` budget and produce truncated malformed JSON on `gemma4:e4b` at `num_ctx:4096`.
-- Increased the dialogue recipe cap to `320`. The clean three-runtime pass completed with all scenarios passing and no fallbacks.
+- Increased the dialogue recipe cap to `320`. The clean runtime + model pass completed with all scenarios passing and no fallbacks.
 
 ### Clean Results
 

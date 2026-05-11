@@ -780,7 +780,7 @@ function renderMarkdown(report) {
   }
   const grouped = summarizeRows(rows);
   return [
-    '# Gemma Runtime Benchmark',
+    '# Gemma Runtime + Model Benchmark',
     '',
     `Generated: ${report.generatedAt}`,
     '',
@@ -796,6 +796,8 @@ function renderMarkdown(report) {
     report.skippedLiteRtModels.length ? `Skipped missing LiteRT-LM models: ${report.skippedLiteRtModels.join(', ')}` : '',
     report.omlxStatus.ok ? '' : `oMLX unavailable: ${report.omlxStatus.error}`,
     report.litertStatus.ok ? '' : `LiteRT-LM unavailable: ${report.litertStatus.error}`,
+    '',
+    'This compares concrete runtime + model artifact + config combinations, not runtimes in isolation.',
     '',
     '## Summary',
     '',
@@ -905,7 +907,7 @@ async function probeLiteRtLm() {
     ? [
       `LiteRT-LM command: ${litertCommand}`,
       `Installed models: ${litertProbe.models.join(', ') || 'none'}`,
-      'Benchmark closes the persistent LiteRT bridge after each config to avoid holding memory across runtime comparisons.'
+      'Benchmark closes the persistent LiteRT bridge after each config to avoid holding memory across runtime + model comparisons.'
     ]
     : [
       `LiteRT-LM command unavailable: ${litertCommand}`,

@@ -1,4 +1,4 @@
-# Gemma Runtime Benchmark
+# Gemma Runtime + Model Benchmark
 
 Generated: 2026-05-11T01:07:00.244Z
 
@@ -9,6 +9,8 @@ Ollama: ollama version is 0.23.2
 Models tested: gemma4:e4b
 oMLX models tested: gemma-4-E4B-it-MLX-8bit
 LiteRT-LM models tested: gemma4-e4b-litert
+
+This compares concrete runtime + model artifact + config combinations, not runtimes in isolation.
 
 
 
@@ -54,7 +56,7 @@ Status: benchmarked-local-runtime
 
 LiteRT-LM command: /Users/dmitrylyalin/Source/Games/the-world/.venv/litert-lm/bin/litert-lm
 Installed models: gemma4-e4b-litert
-Benchmark closes the persistent LiteRT bridge after each config to avoid holding memory across runtime comparisons.
+Benchmark closes the persistent LiteRT bridge after each config to avoid holding memory across runtime + model comparisons.
 
 ## Sources
 

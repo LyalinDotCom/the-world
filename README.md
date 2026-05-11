@@ -419,17 +419,17 @@ The World: ollama-gemma4-e4b warmup ready.
 
 ## Gemma Performance Notes
 
-The benchmark harness runs the real SDK path against multiple runtime options:
+The benchmark harness runs the real SDK path against concrete runtime + model artifact + config combinations:
 
 ```sh
 npm run benchmark:gemma
 ```
 
-Benchmark artifacts are written to `docs/gemma-runtime-benchmark*.json` and `docs/gemma-runtime-benchmark*.md`. Running notes and measurements live in `testing/perf-testing.md`.
+Benchmark artifacts are written to `docs/gemma-runtime-benchmark*.json` and `docs/gemma-runtime-benchmark*.md`. The file names are historical; the contents compare runtime + model combinations. Running notes and measurements live in `testing/perf-testing.md`.
 
-Current preference from testing:
+Current preference from runtime + model testing:
 
-- Use Ollama + `gemma4:e4b` GGUF Q4 for the playable path.
+- Choose Ollama + `gemma4:e4b` GGUF Q4 first in the startup chooser when testing the most reliable current stack.
 - Keep `think:false` for Gemma NPC interactions; thinking mode is too slow for short game turns here.
 - Use `num_ctx:4096` as the realistic conversation context target for town NPCs.
 - Keep ambient life cache-first and capped; generation is too slow to run freely while the player walks.
