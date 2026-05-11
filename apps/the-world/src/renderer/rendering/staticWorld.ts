@@ -30,6 +30,7 @@ export function drawStaticWorld(input: StaticWorldRenderInput): void {
   drawLandmarks(input);
   drawHouses(input);
   drawTrees(input);
+  drawTownLabels(input);
 }
 
 export function drawMapBorder(input: StaticWorldRenderInput & { now: number; wallPulseUntil: number }): void {
@@ -101,7 +102,18 @@ function drawTownGrounds({ ctx, camera }: StaticWorldRenderInput): void {
     ctx.beginPath();
     ctx.arc(x, y, 34, 0, Math.PI * 2);
     ctx.fill();
-    label(ctx, town.name, x, y - town.radius * 0.43, '#f6df9a');
+    ctx.restore();
+  }
+}
+
+function drawTownLabels({ ctx, camera }: StaticWorldRenderInput): void {
+  for (const town of towns) {
+    const x = town.x - camera.x;
+    const y = town.y - camera.y - town.radius * 0.43;
+    ctx.save();
+    ctx.shadowColor = 'rgba(0, 0, 0, 0.45)';
+    ctx.shadowBlur = 8;
+    label(ctx, town.name, x, y, '#ffe39c');
     ctx.restore();
   }
 }
