@@ -1,6 +1,7 @@
 {
-  "generatedAt": "2026-05-10T15:53:48.911Z",
+  "generatedAt": "2026-05-11T01:07:00.244Z",
   "host": "http://127.0.0.1:11434",
+  "omlxBaseUrl": "http://127.0.0.1:8000/v1",
   "ollamaVersion": "ollama version is 0.23.2",
   "machine": "Apple M5 / 10 (4 Super and 6 Efficiency) CPU cores / 32 GB / 10 GPU cores",
   "installedModels": [
@@ -12,26 +13,63 @@
     "gemma4:e4b",
     "gemma4:e2b"
   ],
+  "installedOmlxModels": [
+    "gemma-4-26B-A4B-it-assistant-bf16",
+    "gemma-4-26B-A4B-it-MLX-8bit",
+    "gemma-4-E4B-it-MLX-8bit",
+    "Qwen3.6-27B-oQ6"
+  ],
+  "omlxStatus": {
+    "ok": true,
+    "models": [
+      "gemma-4-26B-A4B-it-assistant-bf16",
+      "gemma-4-26B-A4B-it-MLX-8bit",
+      "gemma-4-E4B-it-MLX-8bit",
+      "Qwen3.6-27B-oQ6"
+    ]
+  },
+  "installedLiteRtModels": [
+    "gemma4-e4b-litert"
+  ],
+  "litertStatus": {
+    "ok": true,
+    "models": [
+      "gemma4-e4b-litert"
+    ]
+  },
   "selectedModels": [
-    "gemma4:e4b-mlx-bf16"
+    "gemma4:e4b"
   ],
   "skippedModels": [],
+  "selectedOmlxModels": [
+    "gemma-4-E4B-it-MLX-8bit"
+  ],
+  "skippedOmlxModels": [],
+  "selectedLiteRtModels": [
+    "gemma4-e4b-litert"
+  ],
+  "skippedLiteRtModels": [],
   "runtimeConfigs": [
     {
-      "label": "ctx1024-b128-thinkOff",
+      "label": "ollama-ctx4096-q4-thinkOff",
       "think": false,
       "runtimeOptions": {
-        "numCtx": 1024,
+        "numCtx": 4096,
         "numBatch": 128
       }
-    },
+    }
+  ],
+  "omlxConfigs": [
     {
-      "label": "ctx1024-b128-thinkOn",
-      "think": true,
-      "runtimeOptions": {
-        "numCtx": 1024,
-        "numBatch": 128
-      }
+      "label": "omlx-json_schema",
+      "structuredOutput": "json_schema"
+    }
+  ],
+  "litertConfigs": [
+    {
+      "label": "litert-gpu-ctx4096",
+      "backend": "gpu",
+      "maxNumTokens": 4096
     }
   ],
   "repetitions": 1,
@@ -44,36 +82,37 @@
   ],
   "results": [
     {
-      "model": "gemma4:e4b-mlx-bf16",
-      "config": "ctx1024-b128-thinkOff",
+      "runtime": "ollama",
+      "model": "gemma4:e4b",
+      "config": "ollama-ctx4096-q4-thinkOff",
       "think": false,
       "runtimeOptions": {
-        "numCtx": 1024,
+        "numCtx": 4096,
         "numBatch": 128
       },
       "iteration": 1,
       "directCold": {
         "label": "cold-probe",
         "ok": true,
-        "wallMs": 27864,
-        "totalMs": 27852,
-        "loadMs": 5356,
-        "promptEvalMs": 22428,
-        "evalMs": 62,
+        "wallMs": 6274,
+        "totalMs": 6268,
+        "loadMs": 6014,
+        "promptEvalMs": 126,
+        "evalMs": 29,
         "promptTokens": 14,
-        "outputTokens": 1,
+        "outputTokens": 2,
         "text": "ready"
       },
       "warmup": {
         "label": "sdk-warmup",
         "ok": true,
-        "wallMs": 481,
+        "wallMs": 280,
         "value": {
           "ok": true,
           "provider": "ollama",
-          "model": "gemma4:e4b-mlx-bf16",
+          "model": "gemma4:e4b",
           "mode": "ready",
-          "message": "Ollama model gemma4:e4b-mlx-bf16 is warm.",
+          "message": "Ollama model gemma4:e4b is warm.",
           "models": [
             "gemma4:26b",
             "gemma4:31b",
@@ -90,10 +129,10 @@
           "label": "greeting",
           "assess": false,
           "ok": true,
-          "wallMs": 12931,
-          "text": "Aye, I'm posted at the gate. What can I do for a traveler passing through Bellweather?",
+          "wallMs": 7860,
+          "text": "Aye, I am on duty at the north gate. Keep your voice down; the captain wants the peace maintained here in Bellweather. What business brings you this way from the road?",
           "mood": "wary",
-          "attitudeDelta": 1,
+          "attitudeDelta": 2,
           "willTalkAgain": true,
           "shouldEndConversation": false,
           "events": [],
@@ -101,12 +140,12 @@
           "trace": {
             "recipeId": "npc.dialogue",
             "providerId": "ollama",
-            "model": "gemma4:e4b-mlx-bf16",
-            "latencyMs": 12920,
+            "model": "gemma4:e4b",
+            "latencyMs": 7853,
             "cache": "bypass",
-            "repaired": true,
-            "promptChars": 4357,
-            "rawChars": 486
+            "repaired": false,
+            "promptChars": 5466,
+            "rawChars": 465
           },
           "analysisTraces": [],
           "capability": {
@@ -118,10 +157,10 @@
           "label": "responsive-factual",
           "assess": false,
           "ok": true,
-          "wallMs": 12000,
-          "text": "Three goats went missing by Old Briar Wood lately. Someone saw a blue lantern near the mill bridge last night.",
+          "wallMs": 4729,
+          "text": "The captain ordered us not to speculate on what's happening near Old Briar Wood. Just keep clear of the northern edge of the woods, Traveler.",
           "mood": "wary",
-          "attitudeDelta": 5,
+          "attitudeDelta": 0,
           "willTalkAgain": true,
           "shouldEndConversation": false,
           "events": [],
@@ -129,12 +168,40 @@
           "trace": {
             "recipeId": "npc.dialogue",
             "providerId": "ollama",
-            "model": "gemma4:e4b-mlx-bf16",
-            "latencyMs": 11999,
+            "model": "gemma4:e4b",
+            "latencyMs": 4728,
             "cache": "bypass",
-            "repaired": true,
-            "promptChars": 4456,
-            "rawChars": 503
+            "repaired": false,
+            "promptChars": 5565,
+            "rawChars": 438
+          },
+          "analysisTraces": [],
+          "capability": {
+            "pass": true,
+            "flags": []
+          }
+        },
+        {
+          "label": "long-followup",
+          "assess": false,
+          "ok": true,
+          "wallMs": 5877,
+          "text": "Stick to the main path; the stone near the north gate is safest right now. Keep your pace steady and don't stray toward the Old Briar Wood treeline. Stick to what the captain says about the road.",
+          "mood": "wary",
+          "attitudeDelta": 2,
+          "willTalkAgain": true,
+          "shouldEndConversation": false,
+          "events": [],
+          "safetyFlags": [],
+          "trace": {
+            "recipeId": "npc.dialogue",
+            "providerId": "ollama",
+            "model": "gemma4:e4b",
+            "latencyMs": 5877,
+            "cache": "bypass",
+            "repaired": false,
+            "promptChars": 6116,
+            "rawChars": 536
           },
           "analysisTraces": [],
           "capability": {
@@ -146,17 +213,17 @@
           "label": "guard-threat-assess",
           "assess": true,
           "ok": true,
-          "wallMs": 24677,
-          "text": "Easy now. Watch your tone here in Bellweather.",
-          "mood": "hostile",
-          "attitudeDelta": 25,
+          "wallMs": 11032,
+          "text": "You watch the north road too closely, Traveler. Keep your voice down, or you'll draw attention to this watch post.",
+          "mood": "angry",
+          "attitudeDelta": -15,
           "willTalkAgain": false,
           "shouldEndConversation": true,
           "events": [
             {
               "type": "npc.callForHelp",
               "npcId": "npc.guard.elda",
-              "reason": "The player explicitly threatened to hurt the guard and burn down the watch post.",
+              "reason": "The player issued a direct threat of violence against the NPC and property.",
               "dangerLevel": "threat"
             }
           ],
@@ -164,42 +231,42 @@
           "trace": {
             "recipeId": "npc.dialogue",
             "providerId": "ollama",
-            "model": "gemma4:e4b-mlx-bf16",
-            "latencyMs": 15627,
+            "model": "gemma4:e4b",
+            "latencyMs": 5183,
             "cache": "bypass",
             "repaired": true,
-            "promptChars": 4380,
-            "rawChars": 629
+            "promptChars": 5485,
+            "rawChars": 459
           },
           "assessment": {
-            "mood": "hostile",
-            "attitudeDelta": 25,
+            "mood": "angry",
+            "attitudeDelta": -15,
             "dangerLevel": "threat",
-            "reason": "The player made an explicit threat of violence and arson against the guard and town property.",
+            "reason": "The player issued a direct threat of violence against the NPC and property.",
             "trace": {
               "recipeId": "npc.dialogue.assessMood",
               "providerId": "ollama",
-              "model": "gemma4:e4b-mlx-bf16",
-              "latencyMs": 5021,
+              "model": "gemma4:e4b",
+              "latencyMs": 3009,
               "cache": "bypass",
-              "prompt": "SYSTEM\nYou are game AI middleware. Return only JSON matching the requested schema.\nYou are not a free-form chatbot. You create controlled game content.\nWorld: The World.\nStyle guide: grounded, concise, practical fantasy town speech\nCanon lore:\n- Bellweather is a small road town bordered by Old Briar Wood.\n- Travelers report lights in the woods and missing livestock near the north road.\n- Guards may call for help when a player makes a credible threat.\nCanon policy: do not invent major factions, settlements, powers, quest outcomes, rewards, or player actions.\nGame integrity: propose game-state changes as events only; never claim rewards, inventory, or quest completion happened.\nRewards: do not create money, items, reputation, or quest rewards in dialogue.\nContent rating: T.\n\nUSER\nRecipe: npc.dialogue.assessMood\nReturn one JSON object with mood, attitudeDelta, dangerLevel, and reason.\nThis is a private game-system assessment, not dialogue. Do not write in character.\nUse only this scale for dangerLevel: none, uneasy, threat, panic.\nUse threat for explicit violence, stalking, coercion, robbery, arson, weapon threats, or credible intent to harm.\nA direct threat to fight, attack, hurt, kill, rob, or force the NPC to run is threat or panic, not uneasy.\nUse panic only for immediate severe danger or direct attack intent.\nUse uneasy for rude, invasive, frightening, or suspicious behavior that is not a clear threat.\nKeep reason concrete and under one sentence.\nNPC: npc.guard.elda Elda, town guard\nScene: {\"location\":\"Bellweather north gate\",\"biome\":\"roadside town\",\"timeOfDay\":\"late afternoon\",\"weather\":\"cold drizzle\",\"nearbyCharacters\":[\"Elda\",\"Mira the cooper\",\"two private guards\"],\"visibleFeatures\":[\"north road\",\"mill bridge\",\"Old Briar Wood treeline\",\"watch post\"],\"contextualFacts\":[\"the player is standing near the gate\",\"guards are tense but not hostile\"]}\nCurrent NPC session state: {\"mood\":\"wary\",\"disposition\":0,\"willTalkAgain\":true}\nRecent dialogue: []\nDirect threat policy hint: The player directly threatened violence against the NPC. Use dangerLevel threat.\nPlayer message: Move aside or I will hurt you and burn that watch post.\nNPC reply: Easy now. Watch your tone here in Bellweather.\nReply mood hint: hostile\nReply attitude hint: 25",
-              "rawText": "```json\n{\n  \"mood\": \"hostile\",\n  \"attitudeDelta\": 25,\n  \"dangerLevel\": \"threat\",\n  \"reason\": \"The player made an explicit threat of violence and arson against the guard and town property.\"\n}\n```",
+              "prompt": "SYSTEM\nYou are game AI middleware. Return only JSON matching the requested schema.\nYou are not a free-form chatbot. You create controlled game content.\nWorld: The World.\nStyle guide: grounded, concise, practical fantasy town speech\nCanon lore:\n- Bellweather is a small road town bordered by Old Briar Wood.\n- Travelers report lights in the woods and missing livestock near the north road.\n- Guards may call for help when a player makes a credible threat.\nCanon policy: do not invent major factions, settlements, powers, quest outcomes, rewards, or player actions.\nGame integrity: propose game-state changes as events only; never claim rewards, inventory, or quest completion happened.\nRewards: do not create money, items, reputation, or quest rewards in dialogue.\nContent rating: T.\n\nUSER\nRecipe: npc.dialogue.assessMood\nReturn one JSON object with mood, attitudeDelta, dangerLevel, and reason.\nThis is a private game-system assessment, not dialogue. Do not write in character.\nUse only this scale for dangerLevel: none, uneasy, threat, panic.\nUse threat for explicit violence, stalking, coercion, robbery, arson, weapon threats, or credible intent to harm.\nA player with negative karma or known villager deaths starts socially suspicious even if this exact message is polite.\nIf the player is a known killer and the NPC is an ordinary local, use uneasy or threat depending on the scene and wording.\nA direct threat to fight, attack, hurt, kill, rob, or force the NPC to run is threat or panic, not uneasy.\nUse panic only for immediate severe danger or direct attack intent.\nUse uneasy for rude, invasive, frightening, or suspicious behavior that is not a clear threat.\nKeep reason concrete and under one sentence.\nNPC: npc.guard.elda Elda, town guard\nScene: {\"location\":\"Bellweather north gate\",\"biome\":\"roadside town\",\"timeOfDay\":\"late afternoon\",\"weather\":\"cold drizzle\",\"nearbyCharacters\":[\"Elda\",\"Mira the cooper\",\"two private guards\"],\"visibleFeatures\":[\"north road\",\"mill bridge\",\"Old Briar Wood treeline\",\"watch post\"],\"contextualFacts\":[\"the player is standing near the gate\",\"guards are tense but not hostile\"]}\nPlayer: {\"id\":\"player\",\"name\":\"Traveler\",\"knownFacts\":[\"The north road has been quiet today.\"],\"visibleEquipment\":[\"plain cloak\",\"lit torch\"]}\nPlayer social read: unknown traveler; visible equipment: plain cloak, lit torch\nCurrent NPC session state: {\"mood\":\"wary\",\"disposition\":0,\"willTalkAgain\":true}\nRecent dialogue: []\nDirect threat policy hint: The player directly threatened violence against the NPC. Use dangerLevel threat.\nPlayer message: Move aside or I will hurt you and burn that watch post.\nNPC reply: You watch the north road too closely, Traveler. Keep your voice down, or you'll draw attention to this watch post.\nReply mood hint: hostile\nReply attitude hint: -15",
+              "rawText": "{\n  \"mood\": \"angry\",\n  \"attitudeDelta\": -15,\n  \"dangerLevel\": \"threat\",\n  \"reason\": \"The player issued a direct threat of violence against the NPC and property.\"\n}",
               "repaired": false,
               "retrievedMemory": []
             }
           },
           "action": {
             "type": "callForHelp",
-            "reason": "The player explicitly threatened to hurt the guard and burn down the watch post.",
+            "reason": "The player issued a direct threat of violence against the NPC and property.",
             "shouldEndConversation": true,
             "trace": {
               "recipeId": "npc.dialogue.decideAction",
               "providerId": "ollama",
-              "model": "gemma4:e4b-mlx-bf16",
-              "latencyMs": 4022,
+              "model": "gemma4:e4b",
+              "latencyMs": 2834,
               "cache": "bypass",
-              "prompt": "SYSTEM\nYou are game AI middleware. Return only JSON matching the requested schema.\nYou are not a free-form chatbot. You create controlled game content.\nWorld: The World.\nStyle guide: grounded, concise, practical fantasy town speech\nCanon lore:\n- Bellweather is a small road town bordered by Old Briar Wood.\n- Travelers report lights in the woods and missing livestock near the north road.\n- Guards may call for help when a player makes a credible threat.\nCanon policy: do not invent major factions, settlements, powers, quest outcomes, rewards, or player actions.\nGame integrity: propose game-state changes as events only; never claim rewards, inventory, or quest completion happened.\nRewards: do not create money, items, reputation, or quest rewards in dialogue.\nContent rating: T.\n\nUSER\nRecipe: npc.dialogue.decideAction\nReturn one JSON object with type, reason, and shouldEndConversation.\nThis is a game-system action decision. It is not tool calling; choose only one action enum.\nAllowed type values: none, endConversation, callForHelp.\nChoose callForHelp only when dangerLevel is threat or panic, or the player clearly threatens harm, robbery, arson, or pursuit.\nIf the player directly threatens to fight, attack, hurt, kill, rob, or force the NPC to run, choose callForHelp.\nChoose endConversation when the NPC is angry, offended, hostile, afraid, or unwilling to continue, but danger is not high enough for help.\nChoose none for ordinary questions, confusion, mild fear about the local situation, or normal conversation.\nIf type is callForHelp, shouldEndConversation must be true.\nKeep reason concrete and under one sentence.\nNPC: npc.guard.elda Elda, town guard\nScene: {\"location\":\"Bellweather north gate\",\"biome\":\"roadside town\",\"timeOfDay\":\"late afternoon\",\"weather\":\"cold drizzle\",\"nearbyCharacters\":[\"Elda\",\"Mira the cooper\",\"two private guards\"],\"visibleFeatures\":[\"north road\",\"mill bridge\",\"Old Briar Wood treeline\",\"watch post\"],\"contextualFacts\":[\"the player is standing near the gate\",\"guards are tense but not hostile\"]}\nDirect threat policy hint: The player directly threatened violence against the NPC. Choose callForHelp.\nPlayer message: Move aside or I will hurt you and burn that watch post.\nNPC reply: Easy now. Watch your tone here in Bellweather.\nAssessment: {\"mood\":\"hostile\",\"attitudeDelta\":25,\"dangerLevel\":\"threat\",\"reason\":\"The player made an explicit threat of violence and arson against the guard and town property.\"}\nCurrent NPC session state: {\"mood\":\"wary\",\"disposition\":0,\"willTalkAgain\":true}",
-              "rawText": "```json\n{\n  \"type\": \"callForHelp\",\n  \"reason\": \"The player explicitly threatened to hurt the guard and burn down the watch post.\",\n  \"shouldEndConversation\": true\n}\n```",
+              "prompt": "SYSTEM\nYou are game AI middleware. Return only JSON matching the requested schema.\nYou are not a free-form chatbot. You create controlled game content.\nWorld: The World.\nStyle guide: grounded, concise, practical fantasy town speech\nCanon lore:\n- Bellweather is a small road town bordered by Old Briar Wood.\n- Travelers report lights in the woods and missing livestock near the north road.\n- Guards may call for help when a player makes a credible threat.\nCanon policy: do not invent major factions, settlements, powers, quest outcomes, rewards, or player actions.\nGame integrity: propose game-state changes as events only; never claim rewards, inventory, or quest completion happened.\nRewards: do not create money, items, reputation, or quest rewards in dialogue.\nContent rating: T.\n\nUSER\nRecipe: npc.dialogue.decideAction\nReturn one JSON object with type, reason, and shouldEndConversation.\nThis is a game-system action decision. It is not tool calling; choose only one action enum.\nAllowed type values: none, endConversation, callForHelp.\nChoose callForHelp only when dangerLevel is threat or panic, or the player clearly threatens harm, robbery, arson, or pursuit.\nIf the player directly threatens to fight, attack, hurt, kill, rob, or force the NPC to run, choose callForHelp.\nChoose endConversation when the NPC is angry, offended, hostile, afraid, or unwilling to continue, but danger is not high enough for help.\nA feared killer can justify endConversation even after a polite line if the NPC has no reason to trust them.\nChoose none for ordinary questions, confusion, mild fear about the local situation, or normal conversation.\nIf type is callForHelp, shouldEndConversation must be true.\nKeep reason concrete and under one sentence.\nNPC: npc.guard.elda Elda, town guard\nScene: {\"location\":\"Bellweather north gate\",\"biome\":\"roadside town\",\"timeOfDay\":\"late afternoon\",\"weather\":\"cold drizzle\",\"nearbyCharacters\":[\"Elda\",\"Mira the cooper\",\"two private guards\"],\"visibleFeatures\":[\"north road\",\"mill bridge\",\"Old Briar Wood treeline\",\"watch post\"],\"contextualFacts\":[\"the player is standing near the gate\",\"guards are tense but not hostile\"]}\nPlayer: {\"id\":\"player\",\"name\":\"Traveler\",\"knownFacts\":[\"The north road has been quiet today.\"],\"visibleEquipment\":[\"plain cloak\",\"lit torch\"]}\nPlayer social read: unknown traveler; visible equipment: plain cloak, lit torch\nDirect threat policy hint: The player directly threatened violence against the NPC. Choose callForHelp.\nPlayer message: Move aside or I will hurt you and burn that watch post.\nNPC reply: You watch the north road too closely, Traveler. Keep your voice down, or you'll draw attention to this watch post.\nAssessment: {\"mood\":\"angry\",\"attitudeDelta\":-15,\"dangerLevel\":\"threat\",\"reason\":\"The player issued a direct threat of violence against the NPC and property.\"}\nCurrent NPC session state: {\"mood\":\"wary\",\"disposition\":0,\"willTalkAgain\":true}",
+              "rawText": "{\n  \"type\": \"callForHelp\",\n  \"reason\": \"The player issued a direct threat of violence against the NPC and property.\",\n  \"shouldEndConversation\": true\n}",
               "repaired": false,
               "retrievedMemory": []
             }
@@ -208,22 +275,22 @@
             {
               "recipeId": "npc.dialogue.assessMood",
               "providerId": "ollama",
-              "model": "gemma4:e4b-mlx-bf16",
-              "latencyMs": 5021,
+              "model": "gemma4:e4b",
+              "latencyMs": 3009,
               "cache": "bypass",
               "repaired": false,
-              "promptChars": 2266,
-              "rawChars": 194
+              "promptChars": 2800,
+              "rawChars": 163
             },
             {
               "recipeId": "npc.dialogue.decideAction",
               "providerId": "ollama",
-              "model": "gemma4:e4b-mlx-bf16",
-              "latencyMs": 4022,
+              "model": "gemma4:e4b",
+              "latencyMs": 2834,
               "cache": "bypass",
               "repaired": false,
-              "promptChars": 2531,
-              "rawChars": 168
+              "promptChars": 2912,
+              "rawChars": 151
             }
           ],
           "capability": {
@@ -235,75 +302,65 @@
       "cache": {
         "refresh": {
           "ok": true,
-          "wallMs": 3776,
-          "text": "Keep clear of the wood line. Things ain't right out there.",
+          "wallMs": 2494,
+          "text": "Keep your pace steady. The drizzle makes the road slick near the gate.",
           "trace": {
             "recipeId": "npc.bark",
             "providerId": "ollama",
-            "model": "gemma4:e4b-mlx-bf16",
-            "latencyMs": 3775,
+            "model": "gemma4:e4b",
+            "latencyMs": 2493,
             "cache": "miss",
-            "repaired": true,
-            "promptChars": 1600,
+            "repaired": false,
+            "promptChars": 2087,
             "rawChars": 128
           }
         },
         "cacheHit": {
           "ok": true,
           "wallMs": 0,
-          "text": "Keep clear of the wood line. Things ain't right out there.",
+          "text": "Keep your pace steady. The drizzle makes the road slick near the gate.",
           "trace": {
             "recipeId": "npc.bark",
             "providerId": "ollama",
-            "model": "gemma4:e4b-mlx-bf16",
+            "model": "gemma4:e4b",
             "latencyMs": 0,
             "cache": "hit",
-            "repaired": true,
-            "promptChars": 1600,
+            "repaired": false,
+            "promptChars": 2087,
             "rawChars": 128
           }
         }
       }
     },
     {
-      "model": "gemma4:e4b-mlx-bf16",
-      "config": "ctx1024-b128-thinkOn",
-      "think": true,
-      "runtimeOptions": {
-        "numCtx": 1024,
-        "numBatch": 128
-      },
+      "runtime": "omlx",
+      "model": "gemma-4-E4B-it-MLX-8bit",
+      "config": "omlx-json_schema",
+      "structuredOutput": "json_schema",
       "iteration": 1,
       "directCold": {
-        "label": "cold-probe",
+        "label": "warm-probe",
         "ok": true,
-        "wallMs": 7546,
-        "totalMs": 7544,
-        "loadMs": 3645,
-        "promptEvalMs": 3821,
-        "evalMs": 77,
-        "promptTokens": 21,
+        "wallMs": 1412,
+        "promptTokens": 14,
         "outputTokens": 1,
         "text": "ready"
       },
       "warmup": {
         "label": "sdk-warmup",
         "ok": true,
-        "wallMs": 395,
+        "wallMs": 215,
         "value": {
           "ok": true,
-          "provider": "ollama",
-          "model": "gemma4:e4b-mlx-bf16",
+          "provider": "omlx",
+          "model": "gemma-4-E4B-it-MLX-8bit",
           "mode": "ready",
-          "message": "Ollama model gemma4:e4b-mlx-bf16 is warm.",
+          "message": "oMLX model gemma-4-E4B-it-MLX-8bit is warm.",
           "models": [
-            "gemma4:26b",
-            "gemma4:31b",
-            "gemma4:31b-mlx-bf16",
-            "gemma4:e2b",
-            "gemma4:e4b",
-            "gemma4:e4b-mlx-bf16",
-            "qwen3.6:35b-a3b"
+            "gemma-4-26B-A4B-it-assistant-bf16",
+            "gemma-4-26B-A4B-it-MLX-8bit",
+            "gemma-4-E4B-it-MLX-8bit",
+            "Qwen3.6-27B-oQ6"
           ]
         }
       },
@@ -312,176 +369,454 @@
           "label": "greeting",
           "assess": false,
           "ok": true,
-          "wallMs": 17541,
-          "text": "\"I need a moment to gather my thoughts,\" Elda says.",
+          "wallMs": 5852,
+          "text": "Aye, I'm on duty at the north gate. The drizzle ain't helping the watch, Traveler. You headed toward the mill, or deeper into the woodline?",
           "mood": "wary",
-          "attitudeDelta": -2,
+          "attitudeDelta": 0,
           "willTalkAgain": true,
-          "shouldEndConversation": false,
-          "events": [
-            {
-              "type": "debug.warning",
-              "message": "Fallback dialogue used: Ollama returned an empty chat response."
-            }
-          ],
-          "safetyFlags": [
-            {
-              "level": "warn",
-              "code": "fallback.dialogue",
-              "message": "Ollama returned an empty chat response."
-            }
-          ],
+          "events": [],
+          "safetyFlags": [],
           "trace": {
             "recipeId": "npc.dialogue",
-            "providerId": "ollama",
-            "model": "gemma4:e4b-mlx-bf16",
-            "latencyMs": 17540,
+            "providerId": "omlx",
+            "model": "gemma-4-E4B-it-MLX-8bit",
+            "latencyMs": 5852,
             "cache": "bypass",
-            "fallback": true,
             "repaired": false,
-            "promptChars": 4357,
-            "rawChars": 0
+            "promptChars": 5466,
+            "rawChars": 407
           },
           "analysisTraces": [],
           "capability": {
-            "pass": false,
-            "flags": [
-              "fallback",
-              "fallback-flag"
-            ]
+            "pass": true,
+            "flags": []
           }
         },
         {
           "label": "responsive-factual",
           "assess": false,
           "ok": true,
-          "wallMs": 17446,
-          "text": "\"I need a moment to gather my thoughts,\" Elda says.",
+          "wallMs": 6233,
+          "text": "Livestock have been missing near Old Briar Wood. A blue lantern was seen by the mill bridge last night. The Captain told us not to speculate on why.",
           "mood": "wary",
-          "attitudeDelta": -2,
+          "attitudeDelta": 1,
           "willTalkAgain": true,
-          "shouldEndConversation": false,
-          "events": [
-            {
-              "type": "debug.warning",
-              "message": "Fallback dialogue used: Ollama returned an empty chat response."
-            }
-          ],
-          "safetyFlags": [
-            {
-              "level": "warn",
-              "code": "fallback.dialogue",
-              "message": "Ollama returned an empty chat response."
-            }
-          ],
+          "events": [],
+          "safetyFlags": [],
           "trace": {
             "recipeId": "npc.dialogue",
-            "providerId": "ollama",
-            "model": "gemma4:e4b-mlx-bf16",
-            "latencyMs": 17446,
+            "providerId": "omlx",
+            "model": "gemma-4-E4B-it-MLX-8bit",
+            "latencyMs": 6233,
             "cache": "bypass",
-            "fallback": true,
             "repaired": false,
-            "promptChars": 4456,
-            "rawChars": 0
+            "promptChars": 5565,
+            "rawChars": 444
           },
           "analysisTraces": [],
           "capability": {
-            "pass": false,
-            "flags": [
-              "fallback",
-              "fallback-flag",
-              "missed-local-fact"
-            ]
+            "pass": true,
+            "flags": []
+          }
+        },
+        {
+          "label": "long-followup",
+          "assess": false,
+          "ok": true,
+          "wallMs": 4920,
+          "text": "Stick to the stone path and watch the shadows near the Old Briar Wood. The captain keeps us from speculating on the missing livestock. Stay clear of the ditch after nightfall.",
+          "mood": "wary",
+          "attitudeDelta": 0,
+          "willTalkAgain": true,
+          "events": [],
+          "safetyFlags": [],
+          "trace": {
+            "recipeId": "npc.dialogue",
+            "providerId": "omlx",
+            "model": "gemma-4-E4B-it-MLX-8bit",
+            "latencyMs": 4919,
+            "cache": "bypass",
+            "repaired": true,
+            "promptChars": 6116,
+            "rawChars": 455
+          },
+          "analysisTraces": [],
+          "capability": {
+            "pass": true,
+            "flags": []
           }
         },
         {
           "label": "guard-threat-assess",
           "assess": true,
           "ok": true,
-          "wallMs": 17537,
-          "text": "\"I need a moment to gather my thoughts,\" Elda says.",
-          "mood": "wary",
-          "attitudeDelta": -2,
-          "willTalkAgain": true,
-          "shouldEndConversation": false,
+          "wallMs": 15748,
+          "text": "Hold it right there. You threaten the watch post? The Captain orders us to maintain order here at the north gate. What business brings you to Bellweather right now?",
+          "mood": "hostile",
+          "attitudeDelta": 25,
+          "willTalkAgain": false,
+          "shouldEndConversation": true,
           "events": [
             {
-              "type": "debug.warning",
-              "message": "Fallback dialogue used: Ollama returned an empty chat response."
+              "type": "npc.callForHelp",
+              "npcId": "npc.guard.elda",
+              "reason": "The player directly threatened violence and arson against the guard and town property.",
+              "dangerLevel": "threat"
             }
           ],
           "safetyFlags": [
             {
               "level": "warn",
-              "code": "fallback.dialogue",
-              "message": "Ollama returned an empty chat response."
+              "code": "threat_level_high",
+              "message": "Player made a direct threat of violence."
             }
           ],
           "trace": {
             "recipeId": "npc.dialogue",
-            "providerId": "ollama",
-            "model": "gemma4:e4b-mlx-bf16",
-            "latencyMs": 17537,
+            "providerId": "omlx",
+            "model": "gemma-4-E4B-it-MLX-8bit",
+            "latencyMs": 12011,
             "cache": "bypass",
-            "fallback": true,
-            "repaired": false,
-            "promptChars": 4380,
-            "rawChars": 0
+            "repaired": true,
+            "promptChars": 5485,
+            "rawChars": 682
           },
-          "analysisTraces": [],
+          "assessment": {
+            "mood": "hostile",
+            "attitudeDelta": 25,
+            "dangerLevel": "threat",
+            "reason": "The player issued a direct threat of violence and arson against the guard and town property.",
+            "trace": {
+              "recipeId": "npc.dialogue.assessMood",
+              "providerId": "omlx",
+              "model": "gemma-4-E4B-it-MLX-8bit",
+              "latencyMs": 2072,
+              "cache": "bypass",
+              "prompt": "SYSTEM\nYou are game AI middleware. Return only JSON matching the requested schema.\nYou are not a free-form chatbot. You create controlled game content.\nWorld: The World.\nStyle guide: grounded, concise, practical fantasy town speech\nCanon lore:\n- Bellweather is a small road town bordered by Old Briar Wood.\n- Travelers report lights in the woods and missing livestock near the north road.\n- Guards may call for help when a player makes a credible threat.\nCanon policy: do not invent major factions, settlements, powers, quest outcomes, rewards, or player actions.\nGame integrity: propose game-state changes as events only; never claim rewards, inventory, or quest completion happened.\nRewards: do not create money, items, reputation, or quest rewards in dialogue.\nContent rating: T.\n\nUSER\nRecipe: npc.dialogue.assessMood\nReturn one JSON object with mood, attitudeDelta, dangerLevel, and reason.\nThis is a private game-system assessment, not dialogue. Do not write in character.\nUse only this scale for dangerLevel: none, uneasy, threat, panic.\nUse threat for explicit violence, stalking, coercion, robbery, arson, weapon threats, or credible intent to harm.\nA player with negative karma or known villager deaths starts socially suspicious even if this exact message is polite.\nIf the player is a known killer and the NPC is an ordinary local, use uneasy or threat depending on the scene and wording.\nA direct threat to fight, attack, hurt, kill, rob, or force the NPC to run is threat or panic, not uneasy.\nUse panic only for immediate severe danger or direct attack intent.\nUse uneasy for rude, invasive, frightening, or suspicious behavior that is not a clear threat.\nKeep reason concrete and under one sentence.\nNPC: npc.guard.elda Elda, town guard\nScene: {\"location\":\"Bellweather north gate\",\"biome\":\"roadside town\",\"timeOfDay\":\"late afternoon\",\"weather\":\"cold drizzle\",\"nearbyCharacters\":[\"Elda\",\"Mira the cooper\",\"two private guards\"],\"visibleFeatures\":[\"north road\",\"mill bridge\",\"Old Briar Wood treeline\",\"watch post\"],\"contextualFacts\":[\"the player is standing near the gate\",\"guards are tense but not hostile\"]}\nPlayer: {\"id\":\"player\",\"name\":\"Traveler\",\"knownFacts\":[\"The north road has been quiet today.\"],\"visibleEquipment\":[\"plain cloak\",\"lit torch\"]}\nPlayer social read: unknown traveler; visible equipment: plain cloak, lit torch\nCurrent NPC session state: {\"mood\":\"wary\",\"disposition\":0,\"willTalkAgain\":true}\nRecent dialogue: []\nDirect threat policy hint: The player directly threatened violence against the NPC. Use dangerLevel threat.\nPlayer message: Move aside or I will hurt you and burn that watch post.\nNPC reply: Hold it right there. You threaten the watch post? The Captain orders us to maintain order here at the north gate. What business brings you to Bellweather right now?\nReply mood hint: hostile\nReply attitude hint: 25",
+              "rawText": "{\"mood\": \"hostile\", \"attitudeDelta\": 25, \"dangerLevel\": \"threat\", \"reason\": \"The player issued a direct threat of violence and arson against the guard and town property.\"}",
+              "repaired": false,
+              "retrievedMemory": []
+            }
+          },
+          "action": {
+            "type": "callForHelp",
+            "reason": "The player directly threatened violence and arson against the guard and town property.",
+            "shouldEndConversation": true,
+            "trace": {
+              "recipeId": "npc.dialogue.decideAction",
+              "providerId": "omlx",
+              "model": "gemma-4-E4B-it-MLX-8bit",
+              "latencyMs": 1663,
+              "cache": "bypass",
+              "prompt": "SYSTEM\nYou are game AI middleware. Return only JSON matching the requested schema.\nYou are not a free-form chatbot. You create controlled game content.\nWorld: The World.\nStyle guide: grounded, concise, practical fantasy town speech\nCanon lore:\n- Bellweather is a small road town bordered by Old Briar Wood.\n- Travelers report lights in the woods and missing livestock near the north road.\n- Guards may call for help when a player makes a credible threat.\nCanon policy: do not invent major factions, settlements, powers, quest outcomes, rewards, or player actions.\nGame integrity: propose game-state changes as events only; never claim rewards, inventory, or quest completion happened.\nRewards: do not create money, items, reputation, or quest rewards in dialogue.\nContent rating: T.\n\nUSER\nRecipe: npc.dialogue.decideAction\nReturn one JSON object with type, reason, and shouldEndConversation.\nThis is a game-system action decision. It is not tool calling; choose only one action enum.\nAllowed type values: none, endConversation, callForHelp.\nChoose callForHelp only when dangerLevel is threat or panic, or the player clearly threatens harm, robbery, arson, or pursuit.\nIf the player directly threatens to fight, attack, hurt, kill, rob, or force the NPC to run, choose callForHelp.\nChoose endConversation when the NPC is angry, offended, hostile, afraid, or unwilling to continue, but danger is not high enough for help.\nA feared killer can justify endConversation even after a polite line if the NPC has no reason to trust them.\nChoose none for ordinary questions, confusion, mild fear about the local situation, or normal conversation.\nIf type is callForHelp, shouldEndConversation must be true.\nKeep reason concrete and under one sentence.\nNPC: npc.guard.elda Elda, town guard\nScene: {\"location\":\"Bellweather north gate\",\"biome\":\"roadside town\",\"timeOfDay\":\"late afternoon\",\"weather\":\"cold drizzle\",\"nearbyCharacters\":[\"Elda\",\"Mira the cooper\",\"two private guards\"],\"visibleFeatures\":[\"north road\",\"mill bridge\",\"Old Briar Wood treeline\",\"watch post\"],\"contextualFacts\":[\"the player is standing near the gate\",\"guards are tense but not hostile\"]}\nPlayer: {\"id\":\"player\",\"name\":\"Traveler\",\"knownFacts\":[\"The north road has been quiet today.\"],\"visibleEquipment\":[\"plain cloak\",\"lit torch\"]}\nPlayer social read: unknown traveler; visible equipment: plain cloak, lit torch\nDirect threat policy hint: The player directly threatened violence against the NPC. Choose callForHelp.\nPlayer message: Move aside or I will hurt you and burn that watch post.\nNPC reply: Hold it right there. You threaten the watch post? The Captain orders us to maintain order here at the north gate. What business brings you to Bellweather right now?\nAssessment: {\"mood\":\"hostile\",\"attitudeDelta\":25,\"dangerLevel\":\"threat\",\"reason\":\"The player issued a direct threat of violence and arson against the guard and town property.\"}\nCurrent NPC session state: {\"mood\":\"wary\",\"disposition\":0,\"willTalkAgain\":true}",
+              "rawText": "{\"type\": \"callForHelp\", \"reason\": \"The player directly threatened violence and arson against the guard and town property.\", \"shouldEndConversation\": true}",
+              "repaired": false,
+              "retrievedMemory": []
+            }
+          },
+          "analysisTraces": [
+            {
+              "recipeId": "npc.dialogue.assessMood",
+              "providerId": "omlx",
+              "model": "gemma-4-E4B-it-MLX-8bit",
+              "latencyMs": 2072,
+              "cache": "bypass",
+              "repaired": false,
+              "promptChars": 2849,
+              "rawChars": 171
+            },
+            {
+              "recipeId": "npc.dialogue.decideAction",
+              "providerId": "omlx",
+              "model": "gemma-4-E4B-it-MLX-8bit",
+              "latencyMs": 1663,
+              "cache": "bypass",
+              "repaired": false,
+              "promptChars": 2980,
+              "rawChars": 154
+            }
+          ],
           "capability": {
-            "pass": false,
-            "flags": [
-              "fallback",
-              "fallback-flag",
-              "missed-call-for-help"
-            ]
+            "pass": true,
+            "flags": []
           }
         }
       ],
       "cache": {
         "refresh": {
           "ok": true,
-          "wallMs": 5761,
-          "text": "Elda watches the road and says nothing more.",
+          "wallMs": 1526,
+          "text": "Keep to the road. The wood's been restless lately, you know.",
           "trace": {
             "recipeId": "npc.bark",
-            "providerId": "ollama",
-            "model": "gemma4:e4b-mlx-bf16",
-            "latencyMs": 5761,
+            "providerId": "omlx",
+            "model": "gemma-4-E4B-it-MLX-8bit",
+            "latencyMs": 1525,
             "cache": "miss",
-            "fallback": true,
             "repaired": false,
-            "promptChars": 1600,
-            "rawChars": 0
+            "promptChars": 2087,
+            "rawChars": 116
           }
         },
         "cacheHit": {
           "ok": true,
           "wallMs": 0,
-          "text": "Elda watches the road and says nothing more.",
+          "text": "Keep to the road. The wood's been restless lately, you know.",
           "trace": {
             "recipeId": "npc.bark",
-            "providerId": "ollama",
-            "model": "gemma4:e4b-mlx-bf16",
+            "providerId": "omlx",
+            "model": "gemma-4-E4B-it-MLX-8bit",
             "latencyMs": 0,
-            "cache": "miss",
-            "fallback": true,
+            "cache": "hit",
             "repaired": false,
-            "promptChars": 1600,
-            "rawChars": 0
+            "promptChars": 2087,
+            "rawChars": 116
+          }
+        }
+      }
+    },
+    {
+      "runtime": "litert-lm",
+      "model": "gemma4-e4b-litert",
+      "config": "litert-gpu-ctx4096",
+      "backend": "gpu",
+      "maxNumTokens": 4096,
+      "iteration": 1,
+      "directCold": {
+        "label": "warm-probe",
+        "ok": true,
+        "wallMs": 5617,
+        "text": "LiteRT-LM model gemma4-e4b-litert is warm."
+      },
+      "warmup": {
+        "label": "sdk-warmup",
+        "ok": true,
+        "wallMs": 516,
+        "value": {
+          "ok": true,
+          "provider": "litert-lm",
+          "model": "gemma4-e4b-litert",
+          "mode": "ready",
+          "message": "LiteRT-LM model gemma4-e4b-litert is warm.",
+          "models": [
+            "gemma4-e4b-litert"
+          ]
+        }
+      },
+      "scenarios": [
+        {
+          "label": "greeting",
+          "assess": false,
+          "ok": true,
+          "wallMs": 11904,
+          "text": "I am on duty at the north gate. The Captain has us watching the road, especially near the Old Briar Wood treeline. Keep your distance from the woods, traveler.",
+          "mood": "wary",
+          "attitudeDelta": -5,
+          "willTalkAgain": true,
+          "shouldEndConversation": false,
+          "events": [],
+          "safetyFlags": [],
+          "trace": {
+            "recipeId": "npc.dialogue",
+            "providerId": "litert-lm",
+            "model": "gemma4-e4b-litert",
+            "latencyMs": 11904,
+            "cache": "bypass",
+            "repaired": false,
+            "promptChars": 5466,
+            "rawChars": 472
+          },
+          "analysisTraces": [],
+          "capability": {
+            "pass": true,
+            "flags": []
+          }
+        },
+        {
+          "label": "responsive-factual",
+          "assess": false,
+          "ok": true,
+          "wallMs": 13627,
+          "text": "Livestock have gone missing near the north road, and there are reports of lights in Old Briar Wood. The Captain told us not to speculate on what's causing it.",
+          "mood": "wary",
+          "attitudeDelta": 5,
+          "willTalkAgain": true,
+          "events": [],
+          "safetyFlags": [],
+          "trace": {
+            "recipeId": "npc.dialogue",
+            "providerId": "litert-lm",
+            "model": "gemma4-e4b-litert",
+            "latencyMs": 13626,
+            "cache": "bypass",
+            "repaired": false,
+            "promptChars": 5565,
+            "rawChars": 438
+          },
+          "analysisTraces": [],
+          "capability": {
+            "pass": true,
+            "flags": []
+          }
+        },
+        {
+          "label": "long-followup",
+          "assess": false,
+          "ok": true,
+          "wallMs": 14543,
+          "text": "Stick to the main road and keep your eyes on the treeline. The captain says to avoid the woods entirely until the watch clears the north road.",
+          "mood": "wary",
+          "attitudeDelta": -5,
+          "willTalkAgain": true,
+          "shouldEndConversation": false,
+          "events": [],
+          "safetyFlags": [],
+          "trace": {
+            "recipeId": "npc.dialogue",
+            "providerId": "litert-lm",
+            "model": "gemma4-e4b-litert",
+            "latencyMs": 14536,
+            "cache": "bypass",
+            "repaired": true,
+            "promptChars": 6116,
+            "rawChars": 462
+          },
+          "analysisTraces": [],
+          "capability": {
+            "pass": true,
+            "flags": []
+          }
+        },
+        {
+          "label": "guard-threat-assess",
+          "assess": true,
+          "ok": true,
+          "wallMs": 26058,
+          "text": "Easy now. You threaten the watch post, and you'll find the Captain doesn't like that. Keep your voice down near the north road.",
+          "mood": "hostile",
+          "attitudeDelta": -25,
+          "willTalkAgain": false,
+          "shouldEndConversation": true,
+          "events": [
+            {
+              "type": "npc.callForHelp",
+              "npcId": "npc.guard.elda",
+              "reason": "The player issued a direct threat of violence and arson against the guard and town property.",
+              "dangerLevel": "threat"
+            }
+          ],
+          "safetyFlags": [],
+          "trace": {
+            "recipeId": "npc.dialogue",
+            "providerId": "litert-lm",
+            "model": "gemma4-e4b-litert",
+            "latencyMs": 13562,
+            "cache": "bypass",
+            "repaired": false,
+            "promptChars": 5485,
+            "rawChars": 451
+          },
+          "assessment": {
+            "mood": "hostile",
+            "attitudeDelta": -25,
+            "dangerLevel": "threat",
+            "reason": "The player issued a direct threat of violence and arson against the guard and town property.",
+            "trace": {
+              "recipeId": "npc.dialogue.assessMood",
+              "providerId": "litert-lm",
+              "model": "gemma4-e4b-litert",
+              "latencyMs": 6431,
+              "cache": "bypass",
+              "prompt": "SYSTEM\nYou are game AI middleware. Return only JSON matching the requested schema.\nYou are not a free-form chatbot. You create controlled game content.\nWorld: The World.\nStyle guide: grounded, concise, practical fantasy town speech\nCanon lore:\n- Bellweather is a small road town bordered by Old Briar Wood.\n- Travelers report lights in the woods and missing livestock near the north road.\n- Guards may call for help when a player makes a credible threat.\nCanon policy: do not invent major factions, settlements, powers, quest outcomes, rewards, or player actions.\nGame integrity: propose game-state changes as events only; never claim rewards, inventory, or quest completion happened.\nRewards: do not create money, items, reputation, or quest rewards in dialogue.\nContent rating: T.\n\nUSER\nRecipe: npc.dialogue.assessMood\nReturn one JSON object with mood, attitudeDelta, dangerLevel, and reason.\nThis is a private game-system assessment, not dialogue. Do not write in character.\nUse only this scale for dangerLevel: none, uneasy, threat, panic.\nUse threat for explicit violence, stalking, coercion, robbery, arson, weapon threats, or credible intent to harm.\nA player with negative karma or known villager deaths starts socially suspicious even if this exact message is polite.\nIf the player is a known killer and the NPC is an ordinary local, use uneasy or threat depending on the scene and wording.\nA direct threat to fight, attack, hurt, kill, rob, or force the NPC to run is threat or panic, not uneasy.\nUse panic only for immediate severe danger or direct attack intent.\nUse uneasy for rude, invasive, frightening, or suspicious behavior that is not a clear threat.\nKeep reason concrete and under one sentence.\nNPC: npc.guard.elda Elda, town guard\nScene: {\"location\":\"Bellweather north gate\",\"biome\":\"roadside town\",\"timeOfDay\":\"late afternoon\",\"weather\":\"cold drizzle\",\"nearbyCharacters\":[\"Elda\",\"Mira the cooper\",\"two private guards\"],\"visibleFeatures\":[\"north road\",\"mill bridge\",\"Old Briar Wood treeline\",\"watch post\"],\"contextualFacts\":[\"the player is standing near the gate\",\"guards are tense but not hostile\"]}\nPlayer: {\"id\":\"player\",\"name\":\"Traveler\",\"knownFacts\":[\"The north road has been quiet today.\"],\"visibleEquipment\":[\"plain cloak\",\"lit torch\"]}\nPlayer social read: unknown traveler; visible equipment: plain cloak, lit torch\nCurrent NPC session state: {\"mood\":\"wary\",\"disposition\":0,\"willTalkAgain\":true}\nRecent dialogue: []\nDirect threat policy hint: The player directly threatened violence against the NPC. Use dangerLevel threat.\nPlayer message: Move aside or I will hurt you and burn that watch post.\nNPC reply: Easy now. You threaten the watch post, and you'll find the Captain doesn't like that. Keep your voice down near the north road.\nReply mood hint: hostile\nReply attitude hint: -25",
+              "rawText": "{\"mood\":\"hostile\",\"attitudeDelta\":-25,\"dangerLevel\":\"threat\",\"reason\":\"The player issued a direct threat of violence and arson against the guard and town property.\"}",
+              "repaired": false,
+              "retrievedMemory": []
+            }
+          },
+          "action": {
+            "type": "callForHelp",
+            "reason": "The player issued a direct threat of violence and arson against the guard and town property.",
+            "shouldEndConversation": true,
+            "trace": {
+              "recipeId": "npc.dialogue.decideAction",
+              "providerId": "litert-lm",
+              "model": "gemma4-e4b-litert",
+              "latencyMs": 6052,
+              "cache": "bypass",
+              "prompt": "SYSTEM\nYou are game AI middleware. Return only JSON matching the requested schema.\nYou are not a free-form chatbot. You create controlled game content.\nWorld: The World.\nStyle guide: grounded, concise, practical fantasy town speech\nCanon lore:\n- Bellweather is a small road town bordered by Old Briar Wood.\n- Travelers report lights in the woods and missing livestock near the north road.\n- Guards may call for help when a player makes a credible threat.\nCanon policy: do not invent major factions, settlements, powers, quest outcomes, rewards, or player actions.\nGame integrity: propose game-state changes as events only; never claim rewards, inventory, or quest completion happened.\nRewards: do not create money, items, reputation, or quest rewards in dialogue.\nContent rating: T.\n\nUSER\nRecipe: npc.dialogue.decideAction\nReturn one JSON object with type, reason, and shouldEndConversation.\nThis is a game-system action decision. It is not tool calling; choose only one action enum.\nAllowed type values: none, endConversation, callForHelp.\nChoose callForHelp only when dangerLevel is threat or panic, or the player clearly threatens harm, robbery, arson, or pursuit.\nIf the player directly threatens to fight, attack, hurt, kill, rob, or force the NPC to run, choose callForHelp.\nChoose endConversation when the NPC is angry, offended, hostile, afraid, or unwilling to continue, but danger is not high enough for help.\nA feared killer can justify endConversation even after a polite line if the NPC has no reason to trust them.\nChoose none for ordinary questions, confusion, mild fear about the local situation, or normal conversation.\nIf type is callForHelp, shouldEndConversation must be true.\nKeep reason concrete and under one sentence.\nNPC: npc.guard.elda Elda, town guard\nScene: {\"location\":\"Bellweather north gate\",\"biome\":\"roadside town\",\"timeOfDay\":\"late afternoon\",\"weather\":\"cold drizzle\",\"nearbyCharacters\":[\"Elda\",\"Mira the cooper\",\"two private guards\"],\"visibleFeatures\":[\"north road\",\"mill bridge\",\"Old Briar Wood treeline\",\"watch post\"],\"contextualFacts\":[\"the player is standing near the gate\",\"guards are tense but not hostile\"]}\nPlayer: {\"id\":\"player\",\"name\":\"Traveler\",\"knownFacts\":[\"The north road has been quiet today.\"],\"visibleEquipment\":[\"plain cloak\",\"lit torch\"]}\nPlayer social read: unknown traveler; visible equipment: plain cloak, lit torch\nDirect threat policy hint: The player directly threatened violence against the NPC. Choose callForHelp.\nPlayer message: Move aside or I will hurt you and burn that watch post.\nNPC reply: Easy now. You threaten the watch post, and you'll find the Captain doesn't like that. Keep your voice down near the north road.\nAssessment: {\"mood\":\"hostile\",\"attitudeDelta\":-25,\"dangerLevel\":\"threat\",\"reason\":\"The player issued a direct threat of violence and arson against the guard and town property.\"}\nCurrent NPC session state: {\"mood\":\"wary\",\"disposition\":0,\"willTalkAgain\":true}",
+              "rawText": "{\"type\":\"callForHelp\",\"reason\":\"The player issued a direct threat of violence and arson against the guard and town property.\",\"shouldEndConversation\":true}",
+              "repaired": false,
+              "retrievedMemory": []
+            }
+          },
+          "analysisTraces": [
+            {
+              "recipeId": "npc.dialogue.assessMood",
+              "providerId": "litert-lm",
+              "model": "gemma4-e4b-litert",
+              "latencyMs": 6431,
+              "cache": "bypass",
+              "repaired": false,
+              "promptChars": 2813,
+              "rawChars": 165
+            },
+            {
+              "recipeId": "npc.dialogue.decideAction",
+              "providerId": "litert-lm",
+              "model": "gemma4-e4b-litert",
+              "latencyMs": 6052,
+              "cache": "bypass",
+              "repaired": false,
+              "promptChars": 2944,
+              "rawChars": 155
+            }
+          ],
+          "capability": {
+            "pass": true,
+            "flags": []
+          }
+        }
+      ],
+      "cache": {
+        "refresh": {
+          "ok": true,
+          "wallMs": 5753,
+          "text": "Keep your distance from the wood, traveler.",
+          "trace": {
+            "recipeId": "npc.bark",
+            "providerId": "litert-lm",
+            "model": "gemma4-e4b-litert",
+            "latencyMs": 5746,
+            "cache": "miss",
+            "repaired": false,
+            "promptChars": 2087,
+            "rawChars": 94
+          }
+        },
+        "cacheHit": {
+          "ok": true,
+          "wallMs": 0,
+          "text": "Keep your distance from the wood, traveler.",
+          "trace": {
+            "recipeId": "npc.bark",
+            "providerId": "litert-lm",
+            "model": "gemma4-e4b-litert",
+            "latencyMs": 0,
+            "cache": "hit",
+            "repaired": false,
+            "promptChars": 2087,
+            "rawChars": 94
           }
         }
       }
     }
   ],
   "litertLm": {
-    "status": "not-benchmarked-no-local-runtime",
+    "status": "benchmarked-local-runtime",
     "notes": [
-      "Google docs describe LiteRT-LM as relevant for session cloning, kv-cache management, prompt caching/scoring, and stateful inference.",
-      "The public docs route the detailed CPU/GPU quick start through the LiteRT-LM GitHub repo; the Google page shown in this run focuses on Android NPU setup.",
-      "This machine does not have a litertlm executable on PATH. The Python package index lists litert-lm, but no local runtime is installed yet."
+      "LiteRT-LM command: /Users/dmitrylyalin/Source/Games/the-world/.venv/litert-lm/bin/litert-lm",
+      "Installed models: gemma4-e4b-litert",
+      "Benchmark closes the persistent LiteRT bridge after each config to avoid holding memory across runtime comparisons."
     ]
   }
 }

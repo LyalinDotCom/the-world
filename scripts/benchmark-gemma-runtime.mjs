@@ -4,6 +4,8 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createGameAI } from '../packages/core/dist/index.js';
 import { ollamaProvider } from '../packages/ollama/dist/index.js';
+import { litertLmProvider } from '../packages/litert-lm/dist/index.js';
+import { omlxProvider, listOmlxModels } from '../packages/omlx/dist/index.js';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const host = process.env.OLLAMA_HOST ?? 'http://127.0.0.1:11434';
@@ -11,15 +13,28 @@ const args = parseArgs(process.argv.slice(2));
 const outputJson = resolve(root, args.outputJson ?? 'docs/gemma-runtime-benchmark.latest.json');
 const outputMd = resolve(root, args.outputMd ?? 'docs/gemma-runtime-benchmark.latest.md');
 const modelNames = splitArg(args.models) ?? ['gemma4:e4b', 'gemma4:e4b-mlx-bf16'];
+const omlxModelNames = splitArg(args.omlxModels) ?? ['gemma-4-E4B-it-MLX-8bit'];
+const litertModelNames = splitArg(args.litertModels) ?? ['gemma4-e4b-litert'];
+const litertCommand = args.litertCommand ?? process.env.THE_WORLD_LITERT_LM_BIN ?? resolve(root, '.venv/litert-lm/bin/litert-lm');
+const omlxBaseUrl = args.omlxBaseUrl ?? process.env.THE_WORLD_OMLX_BASE_URL ?? 'http://127.0.0.1:8000/v1';
+const omlxApiKey = args.omlxApiKey ?? process.env.THE_WORLD_OMLX_API_KEY ?? '1234';
 const quick = args.quick !== 'false';
 const repetitions = Number(args.repetitions ?? (quick ? 1 : 2));
 const timeoutMs = Number(args.timeoutMs ?? 120_000);
 
 const runtimeConfigs = splitArg(args.configs)?.map(parseConfig) ?? [
-  { label: 'ctx512-b64-thinkOff', think: false, runtimeOptions: { numCtx: 512, numBatch: 64 } },
-  { label: 'ctx1024-b128-thinkOff', think: false, runtimeOptions: { numCtx: 1024, numBatch: 128 } },
+  { label: 'ctx4096-b128-thinkOff', think: false, runtimeOptions: { numCtx: 4096, numBatch: 128 } },
   { label: 'ctx2048-b128-thinkOff', think: false, runtimeOptions: { numCtx: 2048, numBatch: 128 } },
-  { label: 'ctx1024-b128-thinkOn', think: true, runtimeOptions: { numCtx: 1024, numBatch: 128 } }
+  { label: 'ctx4096-b128-thinkOn', think: true, runtimeOptions: { numCtx: 4096, numBatch: 128 } }
+];
+
+const omlxConfigs = splitArg(args.omlxConfigs)?.map(parseOmlxConfig) ?? [
+  { label: 'json_schema', structuredOutput: 'json_schema' },
+  { label: 'none-schemaPrompt', structuredOutput: 'none' }
+];
+
+const litertConfigs = splitArg(args.litertConfigs)?.map(parseLiteRtConfig) ?? [
+  { label: 'gpu-ctx4096', backend: 'gpu', maxNumTokens: 4096 }
 ];
 
 const world = {
@@ -158,16 +173,41 @@ const scenarios = [
 const installed = await getInstalledModels();
 const selectedModels = modelNames.filter((model) => installed.includes(model));
 const skippedModels = modelNames.filter((model) => !installed.includes(model));
+const omlxProbe = await getOmlxModels();
+const selectedOmlxModels = omlxProbe.ok
+  ? omlxModelNames.filter((model) => omlxProbe.models.includes(model))
+  : [];
+const skippedOmlxModels = omlxProbe.ok
+  ? omlxModelNames.filter((model) => !omlxProbe.models.includes(model))
+  : omlxModelNames;
+const litertProbe = await getLiteRtModels();
+const selectedLiteRtModels = litertProbe.ok
+  ? litertModelNames.filter((model) => litertProbe.models.includes(model))
+  : [];
+const skippedLiteRtModels = litertProbe.ok
+  ? litertModelNames.filter((model) => !litertProbe.models.includes(model))
+  : litertModelNames;
 
 const report = {
   generatedAt: new Date().toISOString(),
   host,
+  omlxBaseUrl,
   ollamaVersion: await commandVersion(),
   machine: await machineSummary(),
   installedModels: installed,
+  installedOmlxModels: omlxProbe.ok ? omlxProbe.models : [],
+  omlxStatus: omlxProbe,
+  installedLiteRtModels: litertProbe.ok ? litertProbe.models : [],
+  litertStatus: litertProbe,
   selectedModels,
   skippedModels,
+  selectedOmlxModels,
+  skippedOmlxModels,
+  selectedLiteRtModels,
+  skippedLiteRtModels,
   runtimeConfigs,
+  omlxConfigs,
+  litertConfigs,
   repetitions,
   docs: [
     'https://docs.ollama.com/api/generate',
@@ -236,6 +276,7 @@ for (const model of selectedModels) {
       }, { cacheOnly: true, timeoutMs }));
 
       report.results.push({
+        runtime: 'ollama',
         model,
         config: config.label,
         think: config.think,
@@ -249,6 +290,153 @@ for (const model of selectedModels) {
           cacheHit: summarizeBark(barkCached)
         }
       });
+    }
+  }
+}
+
+for (const model of selectedOmlxModels) {
+  for (const config of omlxConfigs) {
+    for (let iteration = 1; iteration <= repetitions; iteration += 1) {
+      console.log(`\n== oMLX ${model} / ${config.label} / run ${iteration}/${repetitions} ==`);
+
+      const directCold = await directOmlxProbe(model, config, 'warm-probe');
+      const ai = createGameAI({
+        provider: omlxProvider({
+          baseUrl: omlxBaseUrl,
+          apiKey: omlxApiKey,
+          model,
+          temperature: 0.55,
+          topP: 0.9,
+          timeoutMs,
+          structuredOutput: config.structuredOutput
+        }),
+        world,
+        policies,
+        runtime: {
+          mode: 'local-first',
+          cache: 'session',
+          maxLatencyMs: timeoutMs,
+          pregeneration: {
+            enabled: true,
+            cacheOnlyRuntimeRecipes: ['npc.bark', 'npc.overhear']
+          }
+        }
+      });
+
+      const warmup = await timed('sdk-warmup', async () => await ai.provider.warmup?.({ timeoutMs }));
+      const npc = ai.npc(guard);
+      const scenarioResults = [];
+      for (const scenario of scenarios) {
+        const result = await timed(scenario.label, async () => await npc.respond(scenario.request, {
+          assess: scenario.assess,
+          timeoutMs,
+          writeMemory: false
+        }));
+        scenarioResults.push(summarizeTurn(scenario, result));
+        console.log(formatScenarioLine(scenario.label, result));
+      }
+
+      const barkRefresh = await timed('bark-refresh', async () => await npc.bark({
+        scene,
+        player,
+        reason: 'player approaches gate'
+      }, { refresh: true, timeoutMs }));
+      const barkCached = await timed('bark-cache-hit', async () => await npc.bark({
+        scene,
+        player,
+        reason: 'player approaches gate'
+      }, { cacheOnly: true, timeoutMs }));
+
+      report.results.push({
+        runtime: 'omlx',
+        model,
+        config: config.label,
+        structuredOutput: config.structuredOutput,
+        iteration,
+        directCold,
+        warmup,
+        scenarios: scenarioResults,
+        cache: {
+          refresh: summarizeBark(barkRefresh),
+          cacheHit: summarizeBark(barkCached)
+        }
+      });
+    }
+  }
+}
+
+for (const model of selectedLiteRtModels) {
+  for (const config of litertConfigs) {
+    for (let iteration = 1; iteration <= repetitions; iteration += 1) {
+      console.log(`\n== LiteRT-LM ${model} / ${config.label} / run ${iteration}/${repetitions} ==`);
+      const provider = litertLmProvider({
+        command: litertCommand,
+        model,
+        backend: config.backend,
+        maxNumTokens: config.maxNumTokens,
+        temperature: 0.55,
+        topP: 0.9,
+        timeoutMs
+      });
+      const directCold = await timed('warm-probe', async () => await provider.warmup?.({ timeoutMs }));
+      const ai = createGameAI({
+        provider,
+        world,
+        policies,
+        runtime: {
+          mode: 'local-first',
+          cache: 'session',
+          maxLatencyMs: timeoutMs,
+          pregeneration: {
+            enabled: true,
+            cacheOnlyRuntimeRecipes: ['npc.bark', 'npc.overhear']
+          }
+        }
+      });
+
+      try {
+        const warmup = await timed('sdk-warmup', async () => await ai.provider.warmup?.({ timeoutMs }));
+        const npc = ai.npc(guard);
+        const scenarioResults = [];
+        for (const scenario of scenarios) {
+          const result = await timed(scenario.label, async () => await npc.respond(scenario.request, {
+            assess: scenario.assess,
+            timeoutMs,
+            writeMemory: false
+          }));
+          scenarioResults.push(summarizeTurn(scenario, result));
+          console.log(formatScenarioLine(scenario.label, result));
+        }
+
+        const barkRefresh = await timed('bark-refresh', async () => await npc.bark({
+          scene,
+          player,
+          reason: 'player approaches gate'
+        }, { refresh: true, timeoutMs }));
+        const barkCached = await timed('bark-cache-hit', async () => await npc.bark({
+          scene,
+          player,
+          reason: 'player approaches gate'
+        }, { cacheOnly: true, timeoutMs }));
+
+        report.results.push({
+          runtime: 'litert-lm',
+          model,
+          config: config.label,
+          backend: config.backend,
+          maxNumTokens: config.maxNumTokens,
+          iteration,
+          directCold: summarizeLiteRtProbe(directCold),
+          warmup,
+          scenarios: scenarioResults,
+          cache: {
+            refresh: summarizeBark(barkRefresh),
+            cacheHit: summarizeBark(barkCached)
+          }
+        });
+      } finally {
+        closeProvider(provider);
+      }
     }
   }
 }
@@ -296,11 +484,79 @@ function parseConfig(value) {
   return { label, think, runtimeOptions };
 }
 
+function parseOmlxConfig(value) {
+  const structuredOutput = value === 'json_object' || value === 'none' || value === 'json_schema'
+    ? value
+    : 'json_schema';
+  return { label: value, structuredOutput };
+}
+
+function parseLiteRtConfig(value) {
+  const parts = value.split(':');
+  const label = parts[0] ?? value;
+  let backend = 'gpu';
+  let maxNumTokens = 4096;
+  for (const part of parts.slice(1)) {
+    const [key, raw] = part.split('=');
+    const numeric = Number(raw);
+    if (key === 'backend' && (raw === 'cpu' || raw === 'gpu')) backend = raw;
+    if (key === 'ctx' && Number.isFinite(numeric)) maxNumTokens = numeric;
+  }
+  return { label, backend, maxNumTokens };
+}
+
 async function getInstalledModels() {
   const response = await fetch(`${host}/api/tags`);
   if (!response.ok) throw new Error(`Ollama tags failed: ${response.status} ${await response.text()}`);
   const body = await response.json();
   return (body.models ?? []).map((model) => model.name).filter(Boolean);
+}
+
+async function getOmlxModels() {
+  try {
+    const models = await listOmlxModels({
+      baseUrl: omlxBaseUrl,
+      apiKey: omlxApiKey,
+      timeoutMs: 5_000
+    });
+    return { ok: true, models: models.map((model) => model.id), error: undefined };
+  } catch (error) {
+    return {
+      ok: false,
+      models: [],
+      error: error instanceof Error ? error.message : String(error)
+    };
+  }
+}
+
+async function getLiteRtModels() {
+  try {
+    const { execFile } = await import('node:child_process');
+    const stdout = await new Promise((resolveValue, reject) => {
+      execFile(litertCommand, ['list'], { timeout: 10_000 }, (error, out, stderr) => {
+        if (error) reject(new Error(stderr || error.message));
+        else resolveValue(out);
+      });
+    });
+    return {
+      ok: true,
+      models: parseLiteRtModelList(String(stdout)),
+      error: undefined
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      models: [],
+      error: error instanceof Error ? error.message : String(error)
+    };
+  }
+}
+
+function parseLiteRtModelList(stdout) {
+  return stdout
+    .split(/\r?\n/)
+    .map((line) => line.trim().split(/\s+/)[0])
+    .filter((value) => value && value !== 'ID' && value !== 'Listing');
 }
 
 async function directProbe(model, config, label) {
@@ -339,6 +595,43 @@ async function directProbe(model, config, label) {
     promptTokens: body.prompt_eval_count,
     outputTokens: body.eval_count,
     text: body.message?.content ?? body.response ?? '',
+    error: response.ok ? undefined : body
+  };
+}
+
+async function directOmlxProbe(model, _config, label) {
+  const startedAt = Date.now();
+  const response = await fetch(`${omlxBaseUrl.replace(/\/+$/, '')}/chat/completions`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      authorization: `Bearer ${omlxApiKey}`
+    },
+    body: JSON.stringify({
+      model,
+      messages: [{ role: 'user', content: 'Reply with exactly: ready' }],
+      temperature: 0,
+      max_tokens: 8
+    })
+  });
+  const bodyText = await response.text();
+  let body;
+  try {
+    body = JSON.parse(bodyText);
+  } catch {
+    body = { error: bodyText };
+  }
+  return {
+    label,
+    ok: response.ok,
+    wallMs: Date.now() - startedAt,
+    totalMs: undefined,
+    loadMs: undefined,
+    promptEvalMs: undefined,
+    evalMs: undefined,
+    promptTokens: body.usage?.prompt_tokens,
+    outputTokens: body.usage?.completion_tokens,
+    text: body.choices?.[0]?.message?.content ?? '',
     error: response.ok ? undefined : body
   };
 }
@@ -405,6 +698,22 @@ function summarizeBark(result) {
   };
 }
 
+function summarizeLiteRtProbe(result) {
+  return {
+    label: result.label,
+    ok: result.ok,
+    wallMs: result.wallMs,
+    totalMs: undefined,
+    loadMs: undefined,
+    promptEvalMs: undefined,
+    evalMs: undefined,
+    promptTokens: undefined,
+    outputTokens: undefined,
+    text: result.value?.message ?? '',
+    error: result.error
+  };
+}
+
 function pickTrace(trace) {
   if (!trace) return undefined;
   return {
@@ -456,6 +765,7 @@ function renderMarkdown(report) {
   for (const result of report.results) {
     for (const scenario of result.scenarios) {
       rows.push({
+        runtime: result.runtime ?? 'ollama',
         model: result.model,
         config: result.config,
         scenario: scenario.label,
@@ -479,25 +789,31 @@ function renderMarkdown(report) {
     `Ollama: ${report.ollamaVersion}`,
     '',
     `Models tested: ${report.selectedModels.join(', ') || 'none'}`,
+    `oMLX models tested: ${report.selectedOmlxModels.join(', ') || 'none'}`,
+    `LiteRT-LM models tested: ${report.selectedLiteRtModels.join(', ') || 'none'}`,
     report.skippedModels.length ? `Skipped missing models: ${report.skippedModels.join(', ')}` : '',
+    report.skippedOmlxModels.length ? `Skipped missing oMLX models: ${report.skippedOmlxModels.join(', ')}` : '',
+    report.skippedLiteRtModels.length ? `Skipped missing LiteRT-LM models: ${report.skippedLiteRtModels.join(', ')}` : '',
+    report.omlxStatus.ok ? '' : `oMLX unavailable: ${report.omlxStatus.error}`,
+    report.litertStatus.ok ? '' : `LiteRT-LM unavailable: ${report.litertStatus.error}`,
     '',
     '## Summary',
     '',
-    '| Model | Config | Scenario | Median wall ms | Median reply ms | Median analysis ms | Pass | Flags |',
-    '| --- | --- | --- | ---: | ---: | ---: | --- | --- |',
-    ...grouped.map((row) => `| ${row.model} | ${row.config} | ${row.scenario} | ${row.wallMs} | ${row.replyMs} | ${row.analysisMs} | ${row.pass} | ${row.flags || ''} |`),
+    '| Runtime | Model | Config | Scenario | Median wall ms | Median reply ms | Median analysis ms | Pass | Flags |',
+    '| --- | --- | --- | --- | ---: | ---: | ---: | --- | --- |',
+    ...grouped.map((row) => `| ${row.runtime} | ${row.model} | ${row.config} | ${row.scenario} | ${row.wallMs} | ${row.replyMs} | ${row.analysisMs} | ${row.pass} | ${row.flags || ''} |`),
     '',
     '## Cold Load Probe',
     '',
-    '| Model | Config | Wall ms | Load ms | Prompt eval ms | Eval ms | Prompt tokens | Output tokens |',
-    '| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |',
-    ...report.results.map((result) => `| ${result.model} | ${result.config} | ${result.directCold.wallMs} | ${num(result.directCold.loadMs)} | ${num(result.directCold.promptEvalMs)} | ${num(result.directCold.evalMs)} | ${num(result.directCold.promptTokens)} | ${num(result.directCold.outputTokens)} |`),
+    '| Runtime | Model | Config | Wall ms | Load ms | Prompt eval ms | Eval ms | Prompt tokens | Output tokens |',
+    '| --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |',
+    ...report.results.map((result) => `| ${result.runtime ?? 'ollama'} | ${result.model} | ${result.config} | ${result.directCold.wallMs} | ${num(result.directCold.loadMs)} | ${num(result.directCold.promptEvalMs)} | ${num(result.directCold.evalMs)} | ${num(result.directCold.promptTokens)} | ${num(result.directCold.outputTokens)} |`),
     '',
     '## Cache Check',
     '',
-    '| Model | Config | Bark refresh ms | Bark cache-hit ms | Cache trace |',
-    '| --- | --- | ---: | ---: | --- |',
-    ...report.results.map((result) => `| ${result.model} | ${result.config} | ${result.cache.refresh.wallMs} | ${result.cache.cacheHit.wallMs} | ${result.cache.cacheHit.trace?.cache ?? 'n/a'} |`),
+    '| Runtime | Model | Config | Bark refresh ms | Bark cache-hit ms | Cache trace |',
+    '| --- | --- | --- | ---: | ---: | --- |',
+    ...report.results.map((result) => `| ${result.runtime ?? 'ollama'} | ${result.model} | ${result.config} | ${result.cache.refresh.wallMs} | ${result.cache.cacheHit.wallMs} | ${result.cache.cacheHit.trace?.cache ?? 'n/a'} |`),
     '',
     '## LiteRT-LM Feasibility',
     '',
@@ -515,12 +831,13 @@ function renderMarkdown(report) {
 function summarizeRows(rows) {
   const groups = new Map();
   for (const row of rows) {
-    const key = `${row.model}\t${row.config}\t${row.scenario}`;
+    const key = `${row.runtime}\t${row.model}\t${row.config}\t${row.scenario}`;
     const group = groups.get(key) ?? [];
     group.push(row);
     groups.set(key, group);
   }
   return [...groups.values()].map((group) => ({
+    runtime: group[0].runtime,
     model: group[0].model,
     config: group[0].config,
     scenario: group[0].scenario,
@@ -555,6 +872,12 @@ function toOllamaOptions(options) {
   }).filter((entry) => typeof entry[1] === 'number'));
 }
 
+function closeProvider(provider) {
+  if (provider && typeof provider === 'object' && typeof provider.close === 'function') {
+    provider.close();
+  }
+}
+
 async function commandVersion() {
   const { execFile } = await import('node:child_process');
   return await new Promise((resolveValue) => {
@@ -578,13 +901,18 @@ async function machineSummary() {
 }
 
 async function probeLiteRtLm() {
-  const notes = [
-    'Google docs describe LiteRT-LM as relevant for session cloning, kv-cache management, prompt caching/scoring, and stateful inference.',
-    'The public docs route the detailed CPU/GPU quick start through the LiteRT-LM GitHub repo; the Google page shown in this run focuses on Android NPU setup.',
-    'This machine does not have a litertlm executable on PATH. The Python package index lists litert-lm, but no local runtime is installed yet.'
-  ];
+  const notes = litertProbe.ok
+    ? [
+      `LiteRT-LM command: ${litertCommand}`,
+      `Installed models: ${litertProbe.models.join(', ') || 'none'}`,
+      'Benchmark closes the persistent LiteRT bridge after each config to avoid holding memory across runtime comparisons.'
+    ]
+    : [
+      `LiteRT-LM command unavailable: ${litertCommand}`,
+      litertProbe.error ?? 'Unknown LiteRT-LM probe failure.'
+    ];
   return {
-    status: 'not-benchmarked-no-local-runtime',
+    status: litertProbe.ok ? 'benchmarked-local-runtime' : 'not-benchmarked-no-local-runtime',
     notes
   };
 }

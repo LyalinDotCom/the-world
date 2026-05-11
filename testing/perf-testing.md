@@ -235,3 +235,45 @@ Game-side recommendation:
   - `fastTextFirst`: reply now, run mood/action after.
   - `fullDecision`: reply + assessment + action before renderer resolves.
   - `riskOnlyDecision`: deterministic narrow risk screen decides whether to run assessment/action.
+
+## 2026-05-10 Three-Runtime Clean Benchmark
+
+Command:
+
+```sh
+npm run benchmark:gemma -- --quick=true --repetitions=1 --timeoutMs=120000 --models=gemma4:e4b --omlxModels=gemma-4-E4B-it-MLX-8bit --litertModels=gemma4-e4b-litert --configs=ollama-ctx4096-q4-thinkOff:ctx=4096:batch=128:think=false --omlxConfigs=omlx-json_schema --litertConfigs=litert-gpu-ctx4096:backend=gpu:ctx=4096
+```
+
+Clean run artifacts:
+
+- `docs/gemma-runtime-benchmark.latest.json`
+- `docs/gemma-runtime-benchmark.latest.md`
+
+Runtime isolation notes:
+
+- Ollama benchmark calls the local unload endpoint before each direct probe with `keep_alive: 0`.
+- LiteRT-LM benchmark closes the persistent bridge after each config so it does not keep model memory across later comparisons.
+- oMLX is measured as a warm local server. The OpenAI-compatible endpoint does not expose a model-unload call, so this is not a true cold-load number.
+
+Bug found and fixed:
+
+- The realistic long-followup scenario could exceed the old `npcDialogueRecipe.maxTokens = 220` budget and produce truncated malformed JSON on `gemma4:e4b` at `num_ctx:4096`.
+- Increased the dialogue recipe cap to `320`. The clean three-runtime pass completed with all scenarios passing and no fallbacks.
+
+### Clean Results
+
+| Scenario | Winner | Time | Notes |
+| --- | --- | ---: | --- |
+| Greeting | oMLX `gemma-4-E4B-it-MLX-8bit` | 5.85s | Ollama was 7.86s, LiteRT-LM was 11.90s. |
+| Responsive factual dialogue | Ollama `gemma4:e4b` GGUF Q4 | 4.73s | oMLX was 6.23s, LiteRT-LM was 13.63s. |
+| Long follow-up dialogue | oMLX `gemma-4-E4B-it-MLX-8bit` | 4.92s | Ollama was 5.88s, LiteRT-LM was 14.54s. |
+| Guard threat with mood/action assessment | Ollama `gemma4:e4b` GGUF Q4 | 11.03s | oMLX total was 15.75s, LiteRT-LM was 26.06s. oMLX's assessment leg was faster, but its initial reply leg was slower. |
+| Ambient bark refresh | oMLX `gemma-4-E4B-it-MLX-8bit` | 1.53s | Ollama was 2.49s, LiteRT-LM was 5.75s. Cache hit was effectively instant for all runtimes. |
+| Cold/warm probe | oMLX warm server | 1.41s | Ollama true unload probe was 6.27s. LiteRT-LM warm bridge probe was 5.62s. |
+
+### Current Preference
+
+- Default playable path remains Ollama `gemma4:e4b` GGUF Q4 with `num_ctx:4096`, `num_batch:128`, and `think:false`.
+- oMLX is now a strong alternate for low-risk dialogue, long single-turn dialogue, and ambient pregeneration. It is not the overall winner yet because full assessed hostile turns are slower.
+- LiteRT-LM should remain experimental. It passed the clean benchmark, but it was slower in every tested gameplay scenario.
+- Do not use `think:true` in the schema-bound playable path. Exploratory runs still produced empty/fallback responses with current Gemma/Ollama settings.

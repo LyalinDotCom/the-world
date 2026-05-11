@@ -41,7 +41,7 @@ export const npcDialogueRecipe: RecipeDefinition<NpcDialogueRecipeInput, Dialogu
   schema: DialogueTurnSchema,
   jsonSchema: dialogueTurnJsonSchema,
   temperature: 0.75,
-  maxTokens: 220,
+  maxTokens: 320,
   compile(input, ctx) {
     return compileDialoguePrompt(input.npc, input.request, ctx);
   },
