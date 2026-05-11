@@ -77,53 +77,14 @@ button:disabled {
   pointer-events: auto;
 }
 
-.topbar {
-  position: absolute;
-  top: 12px;
-  left: 16px;
-  min-height: 34px;
-  display: flex;
-  align-items: center;
-  max-width: min(420px, calc(100vw - 300px));
-  padding: 7px 10px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: linear-gradient(90deg, rgba(16, 18, 15, 0.86), rgba(34, 39, 31, 0.68));
-  box-shadow: 0 12px 34px rgba(0, 0, 0, 0.2);
-  backdrop-filter: blur(10px);
-}
-
-.brand {
-  display: flex;
-  align-items: baseline;
-  gap: 10px;
-  min-width: 0;
-}
-
-.brand strong {
-  font-size: 15px;
-  font-weight: 700;
-  color: #f5d883;
-  white-space: nowrap;
-}
-
-.brand span {
-  color: var(--muted);
-  font-size: 11px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
 .location-chip {
   position: absolute;
   top: 12px;
   right: 16px;
-  display: flex;
-  align-items: baseline;
-  gap: 9px;
+  display: grid;
+  gap: 3px;
   min-height: 34px;
-  max-width: min(300px, calc(100vw - 32px));
+  max-width: min(560px, calc(100vw - 210px));
   padding: 7px 10px;
   border: 1px solid rgba(227, 189, 101, 0.28);
   border-radius: 8px;
@@ -132,23 +93,46 @@ button:disabled {
   backdrop-filter: blur(10px);
 }
 
-.location-chip span {
+.location-title {
+  display: flex;
+  align-items: baseline;
+  justify-content: flex-end;
+  gap: 9px;
+  min-width: 0;
+}
+
+.location-title strong {
+  color: #f5d883;
+  font-size: 15px;
+  white-space: nowrap;
+}
+
+.location-title span {
   color: #f1dfb0;
   font-size: 12px;
   white-space: nowrap;
 }
 
-.location-chip strong {
+.location-title span:last-child,
+.provider-line {
   color: var(--muted);
   font-size: 11px;
   font-weight: 400;
   white-space: nowrap;
 }
 
+.provider-line {
+  display: block;
+  max-width: 100%;
+  text-align: right;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .interaction {
   position: absolute;
   left: 16px;
-  top: 58px;
+  top: 76px;
   display: flex;
   align-items: center;
   gap: 12px;
@@ -192,7 +176,7 @@ button:disabled {
 .combat-panel {
   position: absolute;
   left: 16px;
-  bottom: 16px;
+  top: 12px;
   display: flex;
   align-items: stretch;
   gap: 8px;
@@ -868,14 +852,9 @@ button:disabled {
 }
 
 @media (max-width: 820px) {
-  .topbar {
-    left: 10px;
-    max-width: calc(100vw - 20px);
-  }
-
   .location-chip {
-    top: 52px;
     right: 10px;
+    max-width: calc(100vw - 210px);
   }
 
   .devtools {
@@ -894,7 +873,7 @@ button:disabled {
 
   .combat-panel {
     left: 10px;
-    bottom: 10px;
+    top: 10px;
   }
 
   #minimap {

@@ -252,15 +252,13 @@ let bootPhases: BootPhase[] = [
 ];
 
 hud.innerHTML = `
-  <div class="topbar">
-    <div class="brand">
-      <strong>The World</strong>
-      <span id="provider-line"></span>
-    </div>
-  </div>
   <div class="location-chip">
-    <span id="region-line"></span>
-    <strong id="coord-line"></strong>
+    <div class="location-title">
+      <strong>The World</strong>
+      <span id="region-line"></span>
+      <span id="coord-line"></span>
+    </div>
+    <span id="provider-line" class="provider-line"></span>
   </div>
   <div id="interaction" class="interaction"></div>
   <div id="combat" class="combat-panel">
