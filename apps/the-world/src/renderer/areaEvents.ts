@@ -1,4 +1,4 @@
-import type { AreaEvent, AreaEventKind, AreaEventRequest, NpcDefinition, SceneContext } from '@game-llm/core';
+import type { AreaEvent, AreaEventKind, AreaEventRequest, NpcDefinition, PlayerContext, SceneContext } from '@game-llm/core';
 import type { GameAIPreGenerateJob } from '@game-llm/electron';
 import type { GeneratedNpc, Landmark, Vec2 } from './world.js';
 
@@ -19,6 +19,21 @@ export interface AreaEventActor extends GeneratedNpc {
   health?: number;
 }
 
+const npcNameMaxLength = 120;
+const npcRoleMaxLength = 120;
+const npcSpeechStyleMaxLength = 300;
+const npcKnowledgeMaxLength = 240;
+
+function clampGeneratedText(value: string, maxLength: number): string {
+  const normalized = value.replace(/\s+/g, ' ').trim();
+  if (normalized.length <= maxLength) return normalized;
+  return `${normalized.slice(0, Math.max(0, maxLength - 3)).trimEnd()}...`;
+}
+
+function generatedKnowledge(value: string): string {
+  return clampGeneratedText(value, npcKnowledgeMaxLength);
+}
+
 export function areaEventCacheKey(landmark: Landmark): string {
   return `area-event:${landmark.id}:default`;
 }
@@ -27,7 +42,8 @@ export function createAreaEventRequest(
   landmark: Landmark,
   scene: SceneContext,
   recentEvents: string[] = [],
-  allowedKinds: AreaEventKind[] = [areaEventKindForLandmark(landmark)]
+  allowedKinds: AreaEventKind[] = [areaEventKindForLandmark(landmark)],
+  player?: PlayerContext
 ): AreaEventRequest {
   return {
     area: {
@@ -38,7 +54,7 @@ export function createAreaEventRequest(
       rumor: landmark.rumor
     },
     scene,
-    player: {
+    player: player ?? {
       id: 'player',
       knownFacts: [landmark.rumor],
       visibleEquipment: ['travel cloak', 'worn boots']
@@ -85,20 +101,20 @@ export function areaEventNpcFromBeing(event: AreaEvent, origin: Vec2): AreaEvent
     wanderSpeed: 0,
     conversationPolicy: 'open',
     persona: {
-      name: event.being.name,
-      role: `mysterious being of ${event.locationName}`,
+      name: clampGeneratedText(event.being.name, npcNameMaxLength),
+      role: clampGeneratedText(`mysterious being of ${event.locationName}`, npcRoleMaxLength),
       traits: ['ancient', 'watchful', 'bound to place'],
       mood: event.being.mood,
-      speechStyle: event.being.speechStyle,
+      speechStyle: clampGeneratedText(event.being.speechStyle, npcSpeechStyleMaxLength),
       knows: [
-        event.being.description,
-        `${event.locationName}: ${event.introText}`
+        generatedKnowledge(event.being.description),
+        generatedKnowledge(`${event.locationName}: ${event.introText}`)
       ],
       rules: [
         'Stay tied to this building and its local sensory details.',
         'Do not grant rewards, powers, quest completion, or major canon revelations.'
       ]
-    },
+    } satisfies NpcDefinition['persona'],
     memory: {
       scope: 'npc',
       maxEntries: 12
@@ -130,14 +146,14 @@ export function areaEventNpcsFromBandits(event: AreaEvent, origin: Vec2, player:
       wanderSpeed: 0,
       conversationPolicy: 'private',
       persona: {
-        name: bandit.name,
-        role: bandit.title,
+        name: clampGeneratedText(bandit.name, npcNameMaxLength),
+        role: clampGeneratedText(bandit.title, npcRoleMaxLength),
         traits: ['aggressive', 'opportunistic'],
         mood: 'hostile',
         speechStyle: 'Short rough threats. Context-specific to the building.',
         knows: [
-          `${event.locationName}: ${event.introText}`,
-          ...bandit.threatLines
+          generatedKnowledge(`${event.locationName}: ${event.introText}`),
+          ...bandit.threatLines.map(generatedKnowledge)
         ],
         rules: [
           'Threaten the player in character, but do not decide damage, death, rewards, or inventory.'

@@ -95,10 +95,21 @@ interface SlashArc {
   expiresAt: number;
 }
 
+interface Corpse {
+  id: string;
+  x: number;
+  y: number;
+  name: string;
+  color: string;
+  heading: number;
+  createdAt: number;
+}
+
 type WeaponMode = 'bow' | 'sword';
 type VillagerReactionKind = 'panic' | 'flee' | 'scream' | 'charge';
 
 interface VillagerCombatState {
+  npc?: GeneratedNpc;
   health: number;
   reaction?: VillagerReactionKind;
   reactedTo?: string;
@@ -109,6 +120,14 @@ interface VillagerCombatState {
   expiresAt?: number;
   nextAttackAt?: number;
   inFlight?: boolean;
+}
+
+interface PlayerCharacterSheet {
+  karma: number;
+  villagerKills: number;
+  constableDefeats: number;
+  hostileDefeats: number;
+  violentActs: number;
 }
 
 type DiagnosticsTab = 'trace' | 'machine' | 'perf';
@@ -175,6 +194,7 @@ let ambientMeetups: AmbientMeetup[] = [];
 let constables: Constable[] = [];
 let projectiles: Projectile[] = [];
 let slashes: SlashArc[] = [];
+let corpses: Corpse[] = [];
 const villagerCombat = new Map<string, VillagerCombatState>();
 const deadNpcIds = new Set<string>();
 let areaEventActors: AreaEventActor[] = [];
@@ -207,6 +227,13 @@ let weaponMode: WeaponMode = 'bow';
 let bowAimActive = false;
 let nextAttackAt = 0;
 let mouseWorld: Vec2 = { x: player.x + 80, y: player.y };
+const playerSheet: PlayerCharacterSheet = {
+  karma: 2,
+  villagerKills: 0,
+  constableDefeats: 0,
+  hostileDefeats: 0,
+  violentActs: 0
+};
 let perfLogStatus: PerfLogStatus = { active: false, samples: 0 };
 let perfLogLastSampleAt = 0;
 let perfLogWriteInFlight = false;
@@ -239,6 +266,7 @@ hud.innerHTML = `
     <button id="bow-toggle" class="combat-button" type="button" aria-pressed="false">Bow</button>
     <div><span>Health</span><strong id="combat-health">10/10</strong></div>
     <div><span>Arrows</span><strong id="combat-arrows">10</strong></div>
+    <div><span>Karma</span><strong id="combat-karma">+2</strong></div>
   </div>
   <aside class="minimap-panel">
     <header>Map</header>
@@ -367,6 +395,7 @@ const interactionEl = document.querySelector<HTMLDivElement>('#interaction')!;
 const bowToggle = document.querySelector<HTMLButtonElement>('#bow-toggle')!;
 const combatHealthEl = document.querySelector<HTMLElement>('#combat-health')!;
 const combatArrowsEl = document.querySelector<HTMLElement>('#combat-arrows')!;
+const combatKarmaEl = document.querySelector<HTMLElement>('#combat-karma')!;
 const minimapCanvas = document.querySelector<HTMLCanvasElement>('#minimap')!;
 const minimapContext = minimapCanvas.getContext('2d');
 if (!minimapContext) {
@@ -659,7 +688,7 @@ async function generateAreaEvent(landmark: typeof landmarks[number], refresh: bo
   });
   try {
     const event = await ai.areaEvent({
-      request: createAreaEventRequest(landmark, sceneAt(landmark), triggeredAreaEventTitles()),
+      request: createAreaEventRequest(landmark, sceneAt(landmark), triggeredAreaEventTitles(), undefined, playerContext()),
       options: {
         cacheKey: areaEventCacheKey(landmark),
         refresh,
@@ -862,6 +891,7 @@ function draw(now: number): void {
     ...aliveNpcsNear(player.x, player.y, Math.max(cssWidth, cssHeight)),
     ...areaEventActors.filter((actor) => distance(actor, player) < Math.max(cssWidth, cssHeight))
   ];
+  drawCorpses(camera);
   drawActors({
     ctx,
     camera,
@@ -1158,6 +1188,7 @@ function updateCombat(dt: number, now: number): void {
   slashes = slashes.filter((slash) => slash.expiresAt > now);
 
   for (const projectile of [...projectiles]) {
+    const previous = { x: projectile.x, y: projectile.y };
     const next = {
       x: projectile.x + projectile.vx * dt,
       y: projectile.y + projectile.vy * dt
@@ -1168,7 +1199,7 @@ function updateCombat(dt: number, now: number): void {
     }
     projectile.x = next.x;
     projectile.y = next.y;
-    if (damageFirstHit(projectile, now)) {
+    if (damageFirstHit(projectile, previous, next, now)) {
       projectiles = projectiles.filter((candidate) => candidate.id !== projectile.id);
     }
   }
@@ -1264,23 +1295,36 @@ function aimVector(): Vec2 {
   return { x: dx / length, y: dy / length };
 }
 
-function damageFirstHit(projectile: Projectile, now: number): boolean {
-  const constable = constables.find((candidate) => distance(candidate, projectile) < 24);
+function damageFirstHit(projectile: Projectile, previous: Vec2, next: Vec2, now: number): boolean {
+  const constable = constables.find((candidate) => distanceToSegment(candidate, previous, next) < 28);
   if (constable) {
     damageConstable(constable.id, projectile.damage, now);
     return true;
   }
-  const actor = areaEventActors.find((candidate) => candidate.persona.mood === 'hostile' && distance(candidate, projectile) < 24);
+  const actor = areaEventActors.find((candidate) => candidate.persona.mood === 'hostile' && distanceToSegment(candidate, previous, next) < 28);
   if (actor) {
     damageAreaActor(actor.id, projectile.damage, now);
     return true;
   }
-  const villager = aliveNpcsNear(projectile.x, projectile.y, 34)[0];
+  const villager = arrowVillagerCandidates(projectile)
+    .map((npc) => ({ npc, position: npcPosition(npc, now) }))
+    .filter((entry) => distanceToSegment(entry.position, previous, next) < 30)
+    .sort((a, b) => distanceToSegment(a.position, previous, next) - distanceToSegment(b.position, previous, next))[0]?.npc;
   if (villager) {
     damageVillager(villager, projectile.damage, now);
     return true;
   }
   return false;
+}
+
+function arrowVillagerCandidates(projectile: Projectile): GeneratedNpc[] {
+  const byId = new Map<string, GeneratedNpc>();
+  for (const npc of aliveNpcsNear(projectile.x, projectile.y, 260)) byId.set(npc.id, npc);
+  for (const npc of aliveNpcsNear(player.x, player.y, Math.max(cssWidth, cssHeight) + 260)) byId.set(npc.id, npc);
+  for (const state of villagerCombat.values()) {
+    if (state.npc && !deadNpcIds.has(state.npc.id)) byId.set(state.npc.id, state.npc);
+  }
+  return [...byId.values()];
 }
 
 function damageMelee(now: number): void {
@@ -1322,7 +1366,16 @@ function damageConstable(id: string, amount: number, now: number): void {
   const constable = constables.find((candidate) => candidate.id === id);
   if (!constable) return;
   constable.health -= amount;
+  recordViolence('constable');
   if (constable.health <= 0) {
+    playerSheet.constableDefeats += 1;
+    addCorpse({
+      id,
+      x: constable.x,
+      y: constable.y,
+      name: constable.name,
+      color: '#263a52'
+    }, now);
     constables = constables.filter((candidate) => candidate.id !== id);
     bubbles.push({
       id: `${id}:down:${now}`,
@@ -1341,7 +1394,16 @@ function damageAreaActor(id: string, amount: number, now: number): void {
   const actor = areaEventActors.find((candidate) => candidate.id === id);
   if (!actor) return;
   actor.health = (actor.health ?? 3) - amount;
+  recordViolence('hostile');
   if (actor.health <= 0) {
+    playerSheet.hostileDefeats += 1;
+    addCorpse({
+      id,
+      x: actor.x,
+      y: actor.y,
+      name: actor.persona.name,
+      color: actor.color
+    }, now);
     areaEventActors = areaEventActors.filter((candidate) => candidate.id !== id);
     bubbles.push({
       id: `${id}:down:${now}`,
@@ -1360,10 +1422,19 @@ function damageVillager(npc: GeneratedNpc, amount: number, now: number): void {
   if (deadNpcIds.has(npc.id)) return;
   const state = villagerState(npc);
   state.health -= amount;
+  recordViolence('villager');
   const pos = npcPosition(npc, now);
   state.x = pos.x;
   state.y = pos.y;
   if (state.health <= 0) {
+    playerSheet.villagerKills += 1;
+    addCorpse({
+      id: npc.id,
+      x: pos.x,
+      y: pos.y,
+      name: npc.persona.name,
+      color: npc.color
+    }, now);
     deadNpcIds.add(npc.id);
     villagerCombat.delete(npc.id);
     bubbles.push({
@@ -1423,11 +1494,7 @@ async function requestVillagerReactionBark(npc: GeneratedNpc, victim: GeneratedN
       request: {
         playerText: `The player just shot ${victim.persona.name} with a bow. React immediately by ${reaction}.`,
         scene: sceneAt(npc),
-        player: {
-          id: 'player',
-          knownFacts: playerKnownFacts(),
-          visibleEquipment: ['drawn bow', 'travel cloak', 'worn boots']
-        },
+        player: playerContext(['drawn bow', 'travel cloak', 'worn boots']),
         relationship: 'witness to sudden violence',
         npcState: dialogueController.stateForRequest(npc),
         recentDialogue: [
@@ -1522,10 +1589,21 @@ function attackingVillagers(): GeneratedNpc[] {
 function villagerState(npc: GeneratedNpc): VillagerCombatState {
   let state = villagerCombat.get(npc.id);
   if (!state) {
-    state = { health: 3 };
+    state = { npc, health: 3 };
     villagerCombat.set(npc.id, state);
+  } else {
+    state.npc = npc;
   }
   return state;
+}
+
+function addCorpse(dead: { id: string; x: number; y: number; name: string; color: string }, now: number): void {
+  if (corpses.some((corpse) => corpse.id === dead.id)) return;
+  corpses.push({
+    ...dead,
+    heading: (Math.abs(simpleHash(dead.id)) % 628) / 100,
+    createdAt: now
+  });
 }
 
 function aliveNpcsNear(x: number, y: number, radius: number): GeneratedNpc[] {
@@ -1543,6 +1621,59 @@ function simpleHash(value: string): number {
     hash = ((hash << 5) - hash + value.charCodeAt(index)) | 0;
   }
   return hash;
+}
+
+function recordViolence(kind: 'villager' | 'constable' | 'hostile'): void {
+  playerSheet.violentActs += 1;
+  if (kind === 'villager') playerSheet.karma -= 4;
+  else if (kind === 'constable') playerSheet.karma -= 3;
+  else playerSheet.karma = Math.max(-12, playerSheet.karma - 1);
+  playerSheet.karma = Math.max(-30, Math.min(10, playerSheet.karma));
+}
+
+function playerReputationLabel(): string {
+  if (playerSheet.karma <= -16) return 'feared killer';
+  if (playerSheet.karma <= -8) return 'dangerous troublemaker';
+  if (playerSheet.karma <= -1) return 'unsettling stranger';
+  if (playerSheet.karma <= 3) return 'unknown traveler';
+  return 'trusted traveler';
+}
+
+function playerCharacterFacts(): string[] {
+  return [
+    `Player character sheet: karma ${playerSheet.karma} (${playerReputationLabel()}).`,
+    `Recorded violence: ${playerSheet.violentActs} violent acts, ${playerSheet.villagerKills} villager deaths, ${playerSheet.constableDefeats} constables defeated, ${playerSheet.hostileDefeats} hostile attackers defeated.`,
+    playerSheet.karma < 0
+      ? 'Locals have reason to be colder, warier, or afraid of the player, but each NPC should decide how to express that in character.'
+      : 'Locals have no strong reason yet to treat the player as dangerous.'
+  ];
+}
+
+function playerContext(visibleEquipment: string[] = ['travel cloak', 'worn boots']) {
+  return {
+    id: 'player',
+    knownFacts: playerKnownFacts(),
+    visibleEquipment,
+    reputation: {
+      karma: playerSheet.karma,
+      villagerKills: playerSheet.villagerKills,
+      constableDefeats: playerSheet.constableDefeats,
+      hostileDefeats: playerSheet.hostileDefeats,
+      violentActs: playerSheet.violentActs
+    }
+  };
+}
+
+function distanceToSegment(point: Vec2, a: Vec2, b: Vec2): number {
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+  const lengthSq = dx * dx + dy * dy;
+  if (lengthSq <= 0) return distance(point, a);
+  const t = Math.max(0, Math.min(1, ((point.x - a.x) * dx + (point.y - a.y) * dy) / lengthSq));
+  return distance(point, {
+    x: a.x + dx * t,
+    y: a.y + dy * t
+  });
 }
 
 function updateConstables(dt: number, now: number): void {
@@ -1611,6 +1742,39 @@ function drawCombat(now: number, camera: Vec2): void {
     ctx.beginPath();
     ctx.arc(player.x - camera.x, player.y - camera.y, 58, slash.heading - 0.85, slash.heading + 0.85);
     ctx.stroke();
+  }
+  ctx.restore();
+}
+
+function drawCorpses(camera: Vec2): void {
+  ctx.save();
+  for (const corpse of [...corpses].sort((a, b) => a.y - b.y)) {
+    const sx = corpse.x - camera.x;
+    const sy = corpse.y - camera.y;
+    if (sx < -80 || sy < -80 || sx > cssWidth + 80 || sy > cssHeight + 80) continue;
+    ctx.save();
+    ctx.translate(sx, sy);
+    ctx.rotate(corpse.heading);
+    ctx.fillStyle = 'rgba(24, 18, 14, 0.34)';
+    ctx.beginPath();
+    ctx.ellipse(0, 7, 20, 7, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = 'rgba(83, 20, 18, 0.56)';
+    ctx.beginPath();
+    ctx.ellipse(11, 7, 11, 5, -0.24, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = corpse.color;
+    ctx.strokeStyle = 'rgba(18, 12, 10, 0.62)';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.roundRect(-15, -5, 30, 11, 5);
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = '#1e1715';
+    ctx.beginPath();
+    ctx.arc(-19, 0, 6, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
   }
   ctx.restore();
 }
@@ -1784,6 +1948,7 @@ function renderHud(): void {
   bowToggle.textContent = bowAimActive ? 'Bow Aiming' : 'Bow';
   combatHealthEl.textContent = `${Math.max(0, Math.ceil(playerHealth))}/${playerMaxHealth}`;
   combatArrowsEl.textContent = `${arrowCount}`;
+  combatKarmaEl.textContent = `${playerSheet.karma > 0 ? '+' : ''}${playerSheet.karma} ${playerReputationLabel()}`;
 
   const key = activeNpc ? 'active' : clickableNpcs.map((npc) => {
     const session = dialogueController.sessionFor(npc);
@@ -1929,11 +2094,7 @@ async function interruptPrivateConversation(npc: GeneratedNpc): Promise<void> {
       request: {
         playerText: 'The player tries to interrupt your private conversation. Refuse briefly.',
         scene: currentScene(),
-        player: {
-          id: 'player',
-          knownFacts: playerKnownFacts(),
-          visibleEquipment: ['travel cloak', 'worn boots']
-        },
+        player: playerContext(),
         relationship: 'uninvited interruption',
         npcState: dialogueController.stateForRequest(npc),
         recentDialogue: [
@@ -1986,11 +2147,7 @@ async function sendToNpc(text: string): Promise<void> {
       request: {
         playerText: text,
         scene: currentScene(),
-        player: {
-          id: 'player',
-          knownFacts: playerKnownFacts(),
-          visibleEquipment: ['travel cloak', 'worn boots']
-        },
+        player: playerContext(),
         relationship: 'new acquaintance',
         npcState: dialogueController.stateForRequest(npc),
         recentDialogue: conversation.slice(-8).map((line) => ({
@@ -2423,11 +2580,7 @@ function landmarkRumorTopic(npc: GeneratedNpc): string {
 function ambientBarkRequest(npc: GeneratedNpc) {
   return {
     scene: sceneAt(npc),
-    player: {
-      id: 'player',
-      knownFacts: playerKnownFacts(),
-      visibleEquipment: ['travel cloak', 'worn boots']
-    },
+    player: playerContext(),
     reason: `ambient local rumor: ${landmarkRumorTopic(npc)}`
   };
 }
@@ -2502,6 +2655,7 @@ function visibleFeatures(point: Vec2 = player): string[] {
 function playerKnownFacts(): string[] {
   return [
     'The old mill is avoided after dark.',
+    ...playerCharacterFacts(),
     ...landmarkLoreLines()
   ];
 }

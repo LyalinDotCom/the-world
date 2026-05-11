@@ -1,5 +1,7 @@
+import { NpcDefinitionSchema, type AreaEvent } from '@game-llm/core';
 import { describe, expect, it } from 'vitest';
 import { AmbientDirector, ambientPairKey } from '../src/renderer/ambientDirector.js';
+import { areaEventNpcFromBeing, areaEventNpcsFromBandits } from '../src/renderer/areaEvents.js';
 import { canNpcStand, findSafeSpawn, resolvePlayerMove, staticCollisionAt } from '../src/renderer/collision.js';
 import { diagnosticTrend, formatBytes } from '../src/renderer/diagnosticsHud.js';
 import { DialogueController } from '../src/renderer/dialogueController.js';
@@ -140,5 +142,58 @@ describe('ProceduralWorld', () => {
       willTalkAgain: false,
       refusalReason: 'You made me call the constables.'
     });
+  });
+
+  it('keeps generated area actors valid for dialogue payloads', () => {
+    const longIntro = 'The old stones remember every footstep, every broken oath, and every torch carried through the rain. '.repeat(5);
+    const beingEvent: AreaEvent = {
+      kind: 'mysteriousBeing',
+      title: 'Watcher at the gate',
+      locationId: 'abandoned-castle',
+      locationName: 'The Abandoned Castle',
+      triggerRadius: 180,
+      introText: longIntro,
+      being: {
+        id: 'watcher',
+        name: 'The Watcher',
+        description: 'A bound presence that speaks from the cracked gatehouse and remembers each trespasser by the sound of their breath. '.repeat(4),
+        greeting: 'You stand where vows go to rot.',
+        speechStyle: 'Cold, old, and precise. '.repeat(18),
+        mood: 'wary'
+      },
+      memoryWrites: [],
+      safetyFlags: []
+    };
+    const being = areaEventNpcFromBeing(beingEvent, { x: 0, y: 0 });
+
+    expect(() => NpcDefinitionSchema.parse(being)).not.toThrow();
+    expect(being?.persona.knows?.every((line) => line.length <= 240)).toBe(true);
+
+    const banditEvent: AreaEvent = {
+      kind: 'banditAmbush',
+      title: 'Mill ambush',
+      locationId: 'old-mill',
+      locationName: 'The Old Mill With A Name That Is Longer Than It Needs To Be',
+      triggerRadius: 180,
+      introText: longIntro,
+      bandits: [
+        {
+          id: 'cutpurse',
+          name: 'Harl Crow-Teeth With Too Many Titles',
+          title: 'ambusher from the mill road who should still fit into the persona role field',
+          entryLine: 'Out of the reeds!',
+          threatLines: [
+            'You should not have come to this mill because now every board and wheel is going to hear you beg before we take your purse. '.repeat(3)
+          ],
+          emotion: 'angry'
+        }
+      ],
+      memoryWrites: [],
+      safetyFlags: []
+    };
+    const [bandit] = areaEventNpcsFromBandits(banditEvent, { x: 0, y: 0 }, { x: 50, y: 10 }, 1_000);
+
+    expect(() => NpcDefinitionSchema.parse(bandit)).not.toThrow();
+    expect(bandit?.persona.knows?.every((line) => line.length <= 240)).toBe(true);
   });
 });
