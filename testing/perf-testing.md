@@ -273,7 +273,8 @@ Bug found and fixed:
 
 ### Current Preference
 
-- Default playable path remains Ollama `gemma4:e4b` GGUF Q4 with `num_ctx:4096`, `num_batch:128`, and `think:false`.
+- The startup model chooser remains the playable path; there is no automatic runtime default that bypasses it.
+- Recommended first choice / benchmark baseline is Ollama `gemma4:e4b` GGUF Q4 with `num_ctx:4096`, `num_batch:128`, and `think:false`.
 - oMLX is now a strong alternate for low-risk dialogue, long single-turn dialogue, and ambient pregeneration. It is not the overall winner yet because full assessed hostile turns are slower.
 - LiteRT-LM should remain experimental. It passed the clean benchmark, but it was slower in every tested gameplay scenario.
 - Do not use `think:true` in the schema-bound playable path. Exploratory runs still produced empty/fallback responses with current Gemma/Ollama settings.
